@@ -31,6 +31,8 @@ jobs:
         run: |
           git config --global user.name 'GitHub Action Bot'
           git config --global user.email 'action@github.com'
+          # Esto crea el archivo si es que no existía
+          touch last_signals.json
           git add last_signals.json
           git commit -m "Actualizar memoria [Skip CI]" || exit 0
           git push
