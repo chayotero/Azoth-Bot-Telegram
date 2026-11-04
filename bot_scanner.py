@@ -19,7 +19,6 @@ RIESGO_POR_OPERACION = 0.02
 CONTRATO_ORO = 100                      
 
 # 🏆 LAS 4 TEMPORALIDADES GANADORAS
-# Estructura: (TF, Periodo, Intervalo, Resample, %Caída, VelasConf, TP_Ratio)
 CONFIG_OPTIMA = [
     ("15m", "60d",  "15m", None,   0.002, 2, 0.50), 
     ("1h",  "730d", "1h",  None,   0.002, 1, 0.50), 
@@ -43,10 +42,15 @@ def calcular_lotaje(entry, sl, balance, riesgo):
     lotaje = (balance * riesgo) / (dist_sl * CONTRATO_ORO)
     return round(max(lotaje, 0.01), 2)
 
+# 🛡️ FUNCIÓN BLINDADA CONTRA ARCHIVOS VACÍOS
 def cargar_memoria():
     if os.path.exists(ARCHIVO_MEMORIA):
-        with open(ARCHIVO_MEMORIA, 'r') as f:
-            return json.load(f)
+        try:
+            with open(ARCHIVO_MEMORIA, 'r') as f:
+                return json.load(f)
+        except json.JSONDecodeError:
+            # Si el archivo está vacío o corrupto, devuelve la memoria limpia
+            return {cfg[0]: "" for cfg in CONFIG_OPTIMA}
     return {cfg[0]: "" for cfg in CONFIG_OPTIMA}
 
 def guardar_memoria(memoria):
