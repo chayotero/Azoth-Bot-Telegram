@@ -31,6 +31,9 @@ jobs:
         run: |
           git config --global user.name 'GitHub Action Bot'
           git config --global user.email 'action@github.com'
+          # Si el archivo no existe, lo crea vacío para que Git no falle
+          touch last_signals.json
           git add last_signals.json
+          # El "|| exit 0" evita que el bot marque error si no hubo señales nuevas
           git commit -m "Actualizar memoria [Skip CI]" || exit 0
-          git push
+          git push || exit 0
