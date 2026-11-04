@@ -19,6 +19,7 @@ RIESGO_POR_OPERACION = 0.02
 CONTRATO_ORO = 100                      
 
 # 🏆 LAS 4 TEMPORALIDADES GANADORAS
+# Estructura: (TF, Periodo, Intervalo, Resample, %Caída, VelasConf, TP_Ratio)
 CONFIG_OPTIMA = [
     ("15m", "60d",  "15m", None,   0.002, 2, 0.50), 
     ("1h",  "730d", "1h",  None,   0.002, 1, 0.50), 
@@ -42,14 +43,14 @@ def calcular_lotaje(entry, sl, balance, riesgo):
     lotaje = (balance * riesgo) / (dist_sl * CONTRATO_ORO)
     return round(max(lotaje, 0.01), 2)
 
-# 🛡️ FUNCIÓN BLINDADA CONTRA ARCHIVOS VACÍOS
+# 🛡️ FUNCIÓN BLINDADA CONTRA ARCHIVOS VACÍOS O CORRUPTOS
 def cargar_memoria():
     if os.path.exists(ARCHIVO_MEMORIA):
         try:
             with open(ARCHIVO_MEMORIA, 'r') as f:
                 return json.load(f)
         except json.JSONDecodeError:
-            # Si el archivo está vacío o corrupto, devuelve la memoria limpia
+            # Si el archivo está vacío o tiene un error de formato, devuelve la memoria limpia
             return {cfg[0]: "" for cfg in CONFIG_OPTIMA}
     return {cfg[0]: "" for cfg in CONFIG_OPTIMA}
 
@@ -67,7 +68,9 @@ def escanear_mercado():
         
         try:
             df = yf.download(TICKER, period=periodo, interval=interval, progress=False, auto_adjust=True)
-            if df.empty or len(df) < 100: continue
+            if df.empty or len(df) < 100: 
+                print(f"   ⚠️ Datos insuficientes para {tf.upper()}.")
+                continue
                 
             if isinstance(df.columns, pd.MultiIndex): 
                 df.columns = df.columns.get_level_values(0)
@@ -78,7 +81,9 @@ def escanear_mercado():
             
             # 🛑 ELIMINAMOS LA VELA ACTUAL (Cero Trampas)
             df = df.iloc[:-1].copy()
-            if len(df) < 60: continue
+            if len(df) < 60: 
+                print(f"   ⚠️ Historial muy corto tras eliminar la vela actual en {tf.upper()}.")
+                continue
             
             df = df[['open', 'high', 'low', 'close']]
             
@@ -140,9 +145,14 @@ def escanear_mercado():
                         enviar_telegram(mensaje)
                         print(f"   ✅ ¡SEÑAL ENVIADA para {tf.upper()}! (Cierre: {entrada:.2f})")
                     else:
-                        print(f"   ℹ️ Vela ya procesada en {tf.upper()}.")
+                        print(f"   ℹ️ Vela ya procesada en {tf.upper()}. Sin nuevas señales.")
+                else:
+                    print(f"   ⏳ Sin patrón válido en {tf.upper()}.")
+            else:
+                print(f"   ⏳ Sin patrón válido en {tf.upper()}.")
+                
         except Exception as e:
-            print(f"   ❌ Error en {tf}: {e}")
+            print(f"   ❌ Error procesando {tf}: {e}")
 
 if __name__ == "__main__":
     escanear_mercado()
