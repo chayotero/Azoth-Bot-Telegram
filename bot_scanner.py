@@ -31,13 +31,8 @@ def enviar_telegram(mensaje):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {"chat_id": TELEGRAM_CHAT_ID, "text": mensaje, "parse_mode": "HTML"}
     try:
-        # Mejora del otro chat: Timeout y validación
         resp = requests.post(url, json=payload, timeout=10)
-        if resp.status_code == 200:
-            return True
-        else:
-            print(f"   ❌ Telegram HTTP {resp.status_code}: {resp.text[:300]}")
-            return False
+        return resp.status_code == 200
     except Exception as e:
         print(f"   ❌ Error de red Telegram: {e}")
         return False
@@ -55,7 +50,8 @@ def cargar_memoria():
                 return json.load(f)
         except json.JSONDecodeError:
             pass
-    return {cfg[0]: {"last_candle": "", "last_trade": ""} for cfg in CONFIG_OPTIMA}
+    # Nueva estructura: guarda el ID de la vela y los datos de la operación
+    return {cfg[0]: {"last_candle": "", "last_trade": None} for cfg in CONFIG_OPTIMA}
 
 def guardar_memoria(memoria):
     with open(ARCHIVO_MEMORIA, 'w') as f:
@@ -107,9 +103,31 @@ def escanear_mercado():
             low1 = np.min(lows[idx_low2 - 20 : idx_low2])
             p_low1 = low1
             p_low2 = vela2['low']
+
+            # 🧠 VERIFICACIÓN INTELIGENTE DEL COOLDOWN (Solo si la última operación perdió)
+            last_trade_info = memoria[tf].get("last_trade")
+            cooldown_activo = False
             
+            if last_trade_info:
+                # Si la operación anterior tocó el SL, aplicamos cooldown
+                if last_trade_info.get("status") == "LOSS":
+                    # Calcular cuánto tiempo ha pasado desde la señal
+                    last_signal_time = pd.to_datetime(last_trade_info["time"])
+                    current_time = df.index[-1]
+                    minutes_diff = (current_time - last_signal_time).total_seconds() / 60
+                    
+                    if minutes_diff < (cooldown_velas * tf_minutes):
+                        cooldown_activo = True
+                        
+                # Si la operación anterior ganó (TP) o sigue abierta, NO hay cooldown.
+                # Podemos seguir buscando nuevas señales.
+            
+            if cooldown_activo:
+                print(f"   🛑 {tf.upper()}: Cooldown activo (la última operación fue Loss).")
+                continue
+            
+            # Lógica del patrón
             if p_low2 > p_low1:
-                # Fix del bug: close[-6]
                 caida = (opens[idx_low2 - 26] - closes[idx_low2 - 6]) / opens[idx_low2 - 26]
                 
                 vela_check = df.iloc[idx_low2 + 1]
@@ -120,13 +138,30 @@ def escanear_mercado():
                     vela_entrada = df.iloc[-1]
                     id_senal = str(vela_entrada.name)
                     
-                    # Guardar last_candle ANTES de los filtros
-                    last_candle = memoria[tf].get("last_candle", "")
-                    if last_candle == id_senal:
+                    # Guardar memoria de la vela ANTES de evaluar filtros
+                    if memoria[tf].get("last_candle") == id_senal:
                         continue
                     memoria[tf]["last_candle"] = id_senal
-                    guardar_memoria(memoria)
                     
+                    # Comprobar si la operación anterior (si existía) tocó el SL
+                    if last_trade_info and last_trade_info.get("status") == "OPEN":
+                        # Verificar si en las velas recientes el precio tocó el SL de la última operación
+                        # Buscamos en todo el histórico reciente desde la señal anterior
+                        idx_anterior = df.index.get_loc(pd.to_datetime(last_trade_info["time"]))
+                        if idx_anterior < idx_conf_final: # Si la señal anterior fue en el pasado
+                            v_lows = lows[idx_anterior+1 : idx_conf_final+1]
+                            v_highs = highs[idx_anterior+1 : idx_conf_final+1]
+                            
+                            # ¿Tocó SL?
+                            if len(v_lows) > 0 and np.min(v_lows) <= last_trade_info["sl"]:
+                                last_trade_info["status"] = "LOSS"
+                            # ¿Tocó TP?
+                            elif len(v_highs) > 0 and np.max(v_highs) >= last_trade_info["tp"]:
+                                last_trade_info["status"] = "WIN"
+                    
+                    memoria[tf]["last_trade"] = last_trade_info
+                    guardar_memoria(memoria)
+
                     hora_actual = hours[-1]
                     dia_actual = days[-1]
                     rsi_actual = rsis[-1]
@@ -155,21 +190,14 @@ def escanear_mercado():
                     
                     tp = entrada + (target - entrada) * tp_ratio
                     
-                    last_trade = memoria[tf].get("last_trade", "")
-                    cooldown_activo = False
-                    if last_trade:
-                        last_trade_dt = pd.to_datetime(last_trade)
-                        current_dt = pd.to_datetime(id_senal)
-                        minutes_diff = (current_dt - last_trade_dt).total_seconds() / 60
-                        if minutes_diff < (cooldown_velas * tf_minutes):
-                            cooldown_activo = True
-                            
-                    if cooldown_activo:
-                        print(f"   🛑 {tf.upper()}: Cooldown activo.")
-                        continue
-                        
-                    # 🚨 GUARDAMOS EL COOLDOWN ANTES DE ENVIAR (El fix crítico)
-                    memoria[tf]["last_trade"] = id_senal
+                    # 🚨 SEÑAL VÁLIDA: Guardamos los datos de ESTA operación
+                    memoria[tf]["last_trade"] = {
+                        "time": id_senal,
+                        "entry": float(entrada),
+                        "sl": float(sl),
+                        "tp": float(tp),
+                        "status": "OPEN"
+                    }
                     guardar_memoria(memoria)
                     
                     lote = calcular_lotaje(entrada, sl, BALANCE_CUENTA, RIESGO_POR_OPERACION)
@@ -194,7 +222,7 @@ def escanear_mercado():
                     if enviar_telegram(mensaje):
                         print(f"   ✅ ¡SEÑAL ENVIADA para {tf.upper()}! (Cierre: {entrada:.2f})")
                     else:
-                        print(f"   ⚠️ Falló Telegram, pero el Cooldown ya se guardó correctamente.")
+                        print(f"   ⚠️ Falló Telegram.")
                         
         except Exception as e:
             print(f"   ❌ Error procesando {tf}: {e}")
