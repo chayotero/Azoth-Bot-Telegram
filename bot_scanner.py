@@ -147,6 +147,11 @@ def escanear_mercado():
                         
                     target = np.max(highs[max(0, idx_low2 - 50) : idx_low2])
                     entrada = vela_entrada['close']
+
+                    # 🛑 FILTRO DE TARGET MÍNIMO (3.6 PUNTOS)
+                    # Evita operaciones donde el premio no justifica el riesgo (como la de hoy)
+                    if (target - entrada) < 3.6:
+                        continue
                     
                     # 🛡️ CALCULO DEL SL Y TP
                     distancia_original = entrada - p_low1
