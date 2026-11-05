@@ -19,11 +19,13 @@ BALANCE_CUENTA = 1000                   # ⚠️ CAMBIA ESTO POR TU BALANCE REAL
 RIESGO_POR_OPERACION = 0.02             
 CONTRATO_ORO = 100                      
 
-# 🏆 CONFIGURACIONES GANADORAS (Horario México UTC-6)
-# Estructura: (TF, Intervalo, Minutos_TF, %Caída, TP_Ratio, SL_Mult, H_Inicio, H_Fin, RSI_Min, RSI_Max, Cooldown_Velas)
+# 🏆 CONFIGURACIÓN FINAL OPTIMIZADA (Cooldown 13)
+# Estructura: (TF, Intervalo, Minutos_TF, %Caída, TP_Ratio, SL_Mult, H_Inicio, H_Fin, RSI_Min, RSI_Max, Cooldown_Velas, Min_Target, Evitar_Domingo, Evitar_Madrugada)
 CONFIG_OPTIMA = [
-    ("15m", Interval.in_15_minute, 15, 0.0014, 0.49, 1.06, 19, 17, None, None, 5),
-    ("1h",  Interval.in_1_hour,    60, 0.0039, 0.35, 0.81, 22, 11, 30, 70, 5)
+    # 15M: Trinidad con Cooldown 13
+    ("15m", Interval.in_15_minute, 15, 0.0014, 0.49, 1.06, 19, 17, None, None, 13, 3.6, True, True),
+    # 1H: Candidato 1 con Cooldown 13
+    ("1h",  Interval.in_1_hour,    60, 0.0039, 0.35, 0.81, 23, 11, 45, 70, 13, 3.6, False, False)
 ]
 
 ARCHIVO_MEMORIA = "last_signals.json"
@@ -72,7 +74,7 @@ def escanear_mercado():
         return
 
     for cfg in CONFIG_OPTIMA:
-        tf, tv_interval, tf_minutes, caida_min, tp_ratio, sl_mult, h_start, h_end, rsi_min, rsi_max, cooldown_velas = cfg
+        tf, tv_interval, tf_minutes, caida_min, tp_ratio, sl_mult, h_start, h_end, rsi_min, rsi_max, cooldown_velas, min_target, evitar_dom, evitar_mad = cfg
         print(f"🔍 Analizando {tf.upper()}...")
         
         try:
@@ -103,6 +105,7 @@ def escanear_mercado():
             closes = df['close'].values
             rsis = df['RSI'].values
             hours = df.index.hour.values
+            days = df.index.dayofweek.values
             
             # Vela 3 (Confirmación) es la última vela cerrada
             idx_conf_final = len(df) - 1
@@ -128,15 +131,22 @@ def escanear_mercado():
                     
                     vela_entrada = df.iloc[-1]
                     hora_actual = hours[-1]
+                    dia_actual = days[-1]
                     rsi_actual = rsis[-1]
                     
-                    # 🛡️ FILTRO HORARIO (Soporta rangos que cruzan medianoche)
+                    # 🛡️ FILTRO HORARIO
                     if h_start <= h_end:
                         hora_valida = h_start <= hora_actual <= h_end
                     else:
                         hora_valida = hora_actual >= h_start or hora_actual <= h_end
                         
                     if not hora_valida:
+                        continue
+                        
+                    # 🛡️ FILTROS DE CONTEXTO (Domingos y Madrugada)
+                    if evitar_dom and dia_actual == 6: # 6 = Domingo
+                        continue
+                    if evitar_mad and (hora_actual == 2 or hora_actual == 3):
                         continue
                         
                     # 🛡️ FILTRO RSI
@@ -148,9 +158,8 @@ def escanear_mercado():
                     target = np.max(highs[max(0, idx_low2 - 50) : idx_low2])
                     entrada = vela_entrada['close']
 
-                    # 🛑 FILTRO DE TARGET MÍNIMO (3.6 PUNTOS)
-                    # Evita operaciones donde el premio no justifica el riesgo (como la de hoy)
-                    if (target - entrada) < 3.6:
+                    # 🛑 FILTRO DE TARGET MÍNIMO
+                    if (target - entrada) < min_target:
                         continue
                     
                     # 🛡️ CALCULO DEL SL Y TP
@@ -166,11 +175,9 @@ def escanear_mercado():
                     last_candle = memoria[tf].get("last_candle", "")
                     last_trade = memoria[tf].get("last_trade", "")
                     
-                    # Si esta vela ya fue procesada, no hacemos nada
                     if last_candle == id_senal:
                         continue
                         
-                    # Actualizar last_candle
                     memoria[tf]["last_candle"] = id_senal
                     
                     # Verificar Cooldown
@@ -213,7 +220,6 @@ def escanear_mercado():
                     print(f"   ✅ ¡SEÑAL ENVIADA para {tf.upper()}! (Cierre: {entrada:.2f})")
                     
                 else:
-                    # Si no hay patrón pero la vela es nueva, guardamos el last_candle
                     memoria[tf]["last_candle"] = str(df.iloc[-1].name)
                     guardar_memoria(memoria)
                     print(f"   ⏳ Sin patrón válido en {tf.upper()}.")
