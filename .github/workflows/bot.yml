@@ -2,8 +2,14 @@ name: XAUUSD Algo Bot
 
 on:
   schedule:
+    # Se ejecuta cada 5 minutos para no perder el cierre exacto de las velas de 15M
     - cron: '*/5 * * * *'
   workflow_dispatch: 
+
+# Evita que dos ejecuciones choquen y corrompan la memoria
+concurrency:
+  group: xauusd-bot
+  cancel-in-progress: false
 
 jobs:
   run-scanner:
@@ -32,7 +38,13 @@ jobs:
         run: |
           git config --global user.name 'GitHub Action Bot'
           git config --global user.email 'action@github.com'
-          touch last_signals.json
-          git add last_signals.json
-          git commit -m "Actualizar memoria [Skip CI]" || exit 0
-          git push || exit 0
+          # Solo guarda si el archivo existe
+          if [ -f last_signals.json ]; then
+            git add last_signals.json
+            git commit -m "Actualizar memoria [Skip CI]" || exit 0
+            # Sincroniza por si acaso antes de hacer push
+            git pull --rebase origin main || true 
+            git push || exit 0
+          else
+            echo "No hay archivo last_signals.json para guardar."
+          fi
