@@ -13,13 +13,12 @@ from tvDatafeed import TvDatafeed, Interval
 # ==========================================
 # ⚙️ CONFIGURACIÓN DEL BOT Y CUENTA
 # ==========================================
-TELEGRAM_TOKEN = "8570417983:AAEE_9Bg5FaINA-O53tUefr86HW7AMPD-xc" # Token nuevo
+TELEGRAM_TOKEN = "8570417983:AAEE_9Bg5FaINA-O53tUefr86HW7AMPD-xc" 
 TELEGRAM_CHAT_ID = "8996462811"
 BALANCE_CUENTA = 1000                   
 RIESGO_POR_OPERACION = 0.02             
 CONTRATO_ORO = 100                      
 
-# 🏆 CONFIGURACIÓN FINAL (Intacta)
 CONFIG_OPTIMA = [
     ("15m", Interval.in_15_minute, 15, 0.0014, 0.49, 1.06, 19, 17, None, None, 13, 3.6, True, True),
     ("1h",  Interval.in_1_hour,    60, 0.0039, 0.35, 0.81, 23, 11, 45, 70, 13, 3.6, False, False)
@@ -50,7 +49,6 @@ def cargar_memoria():
                 return json.load(f)
         except json.JSONDecodeError:
             pass
-    # Nueva estructura: guarda el ID de la vela y los datos de la operación
     return {cfg[0]: {"last_candle": "", "last_trade": None} for cfg in CONFIG_OPTIMA}
 
 def guardar_memoria(memoria):
@@ -96,6 +94,66 @@ def escanear_mercado():
             hours = df.index.hour.values
             days = df.index.dayofweek.values
             
+            # ==========================================
+            # 🧠 PASO 1: ACTUALIZAR EL ESTADO DEL TRADE ANTERIOR
+            # ==========================================
+            last_trade_info = memoria[tf].get("last_trade")
+            
+            if last_trade_info and last_trade_info.get("status") == "OPEN":
+                entry_time = pd.to_datetime(last_trade_info["entry_time"])
+                
+                if entry_time in df.index:
+                    entry_idx = df.index.get_loc(entry_time)
+                    
+                    if entry_idx < len(df) - 1:
+                        # Buscamos velas posteriores a la entrada
+                        v_highs = highs[entry_idx+1:]
+                        v_lows = lows[entry_idx+1:]
+                        
+                        hit_sl = np.where(v_lows <= last_trade_info["sl"])[0]
+                        hit_tp = np.where(v_highs >= last_trade_info["tp"])[0]
+                        
+                        if len(hit_sl) > 0 and len(hit_tp) > 0:
+                            # Si tocó ambos, el que ocurrió primero gana
+                            last_trade_info["status"] = "LOSS" if hit_sl[0] < hit_tp[0] else "WIN"
+                            exit_idx = entry_idx + 1 + min(hit_sl[0], hit_tp[0])
+                        elif len(hit_sl) > 0:
+                            last_trade_info["status"] = "LOSS"
+                            exit_idx = entry_idx + 1 + hit_sl[0]
+                        elif len(hit_tp) > 0:
+                            last_trade_info["status"] = "WIN"
+                            exit_idx = entry_idx + 1 + hit_tp[0]
+                        else:
+                            # Sigue abierto
+                            last_trade_info["exit_time"] = None
+                        
+                        if last_trade_info["status"] != "OPEN":
+                            last_trade_info["exit_time"] = str(df.index[exit_idx])
+                            memoria[tf]["last_trade"] = last_trade_info
+                            guardar_memoria(memoria)
+                            print(f"   🔄 {tf.upper()}: Trade anterior cerrado como {last_trade_info['status']}.")
+                        else:
+                            print(f"   ⏳ {tf.upper()}: Trade anterior aún en curso.")
+                            continue # No buscamos nuevas señales hasta que el anterior cierre
+            
+            # ==========================================
+            # 🛑 PASO 2: COMPROBAR COOLDOWN (SOLO SI LA ÚLTIMA FUE LOSS)
+            # ==========================================
+            cooldown_activo = False
+            if last_trade_info and last_trade_info.get("status") == "LOSS":
+                exit_time = pd.to_datetime(last_trade_info["exit_time"])
+                current_time = df.index[-1]
+                minutes_diff = (current_time - exit_time).total_seconds() / 60
+                if minutes_diff < (cooldown_velas * tf_minutes):
+                    cooldown_activo = True
+            
+            if cooldown_activo:
+                print(f"   🛑 {tf.upper()}: Cooldown activo (última operación fue Loss).")
+                continue
+            
+            # ==========================================
+            # 🎯 PASO 3: BUSCAR NUEVO PATRÓN
+            # ==========================================
             idx_conf_final = len(df) - 1
             idx_low2 = idx_conf_final - 1
             vela2 = df.iloc[idx_low2]
@@ -104,29 +162,6 @@ def escanear_mercado():
             p_low1 = low1
             p_low2 = vela2['low']
 
-            # 🧠 VERIFICACIÓN INTELIGENTE DEL COOLDOWN (Solo si la última operación perdió)
-            last_trade_info = memoria[tf].get("last_trade")
-            cooldown_activo = False
-            
-            if last_trade_info:
-                # Si la operación anterior tocó el SL, aplicamos cooldown
-                if last_trade_info.get("status") == "LOSS":
-                    # Calcular cuánto tiempo ha pasado desde la señal
-                    last_signal_time = pd.to_datetime(last_trade_info["time"])
-                    current_time = df.index[-1]
-                    minutes_diff = (current_time - last_signal_time).total_seconds() / 60
-                    
-                    if minutes_diff < (cooldown_velas * tf_minutes):
-                        cooldown_activo = True
-                        
-                # Si la operación anterior ganó (TP) o sigue abierta, NO hay cooldown.
-                # Podemos seguir buscando nuevas señales.
-            
-            if cooldown_activo:
-                print(f"   🛑 {tf.upper()}: Cooldown activo (la última operación fue Loss).")
-                continue
-            
-            # Lógica del patrón
             if p_low2 > p_low1:
                 caida = (opens[idx_low2 - 26] - closes[idx_low2 - 6]) / opens[idx_low2 - 26]
                 
@@ -138,28 +173,9 @@ def escanear_mercado():
                     vela_entrada = df.iloc[-1]
                     id_senal = str(vela_entrada.name)
                     
-                    # Guardar memoria de la vela ANTES de evaluar filtros
                     if memoria[tf].get("last_candle") == id_senal:
                         continue
                     memoria[tf]["last_candle"] = id_senal
-                    
-                    # Comprobar si la operación anterior (si existía) tocó el SL
-                    if last_trade_info and last_trade_info.get("status") == "OPEN":
-                        # Verificar si en las velas recientes el precio tocó el SL de la última operación
-                        # Buscamos en todo el histórico reciente desde la señal anterior
-                        idx_anterior = df.index.get_loc(pd.to_datetime(last_trade_info["time"]))
-                        if idx_anterior < idx_conf_final: # Si la señal anterior fue en el pasado
-                            v_lows = lows[idx_anterior+1 : idx_conf_final+1]
-                            v_highs = highs[idx_anterior+1 : idx_conf_final+1]
-                            
-                            # ¿Tocó SL?
-                            if len(v_lows) > 0 and np.min(v_lows) <= last_trade_info["sl"]:
-                                last_trade_info["status"] = "LOSS"
-                            # ¿Tocó TP?
-                            elif len(v_highs) > 0 and np.max(v_highs) >= last_trade_info["tp"]:
-                                last_trade_info["status"] = "WIN"
-                    
-                    memoria[tf]["last_trade"] = last_trade_info
                     guardar_memoria(memoria)
 
                     hora_actual = hours[-1]
@@ -190,13 +206,14 @@ def escanear_mercado():
                     
                     tp = entrada + (target - entrada) * tp_ratio
                     
-                    # 🚨 SEÑAL VÁLIDA: Guardamos los datos de ESTA operación
+                    # Guardar nueva operación
                     memoria[tf]["last_trade"] = {
-                        "time": id_senal,
+                        "entry_time": id_senal,
                         "entry": float(entrada),
                         "sl": float(sl),
                         "tp": float(tp),
-                        "status": "OPEN"
+                        "status": "OPEN",
+                        "exit_time": None
                     }
                     guardar_memoria(memoria)
                     
