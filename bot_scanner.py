@@ -13,33 +13,34 @@ from tvDatafeed import TvDatafeed, Interval
 # ==========================================
 # ⚙️ CONFIGURACIÓN DEL BOT Y CUENTA
 # ==========================================
-TELEGRAM_TOKEN = "8570417983:AAG_lqX9bzw2dZxQ-GPYCHqBYpAgtyZaD5s"
+TELEGRAM_TOKEN = "8570417983:AAEE_9Bg5FaINA-O53tUefr86HW7AMPD-xc" # Token nuevo
 TELEGRAM_CHAT_ID = "8996462811"
-BALANCE_CUENTA = 1000                   # ⚠️ CAMBIA ESTO POR TU BALANCE REAL
+BALANCE_CUENTA = 1000                   
 RIESGO_POR_OPERACION = 0.02             
 CONTRATO_ORO = 100                      
 
-# 🏆 CONFIGURACIÓN FINAL OPTIMIZADA (Cooldown 13)
-# Estructura: (TF, Intervalo, Minutos_TF, %Caída, TP_Ratio, SL_Mult, H_Inicio, H_Fin, RSI_Min, RSI_Max, Cooldown_Velas, Min_Target, Evitar_Domingo, Evitar_Madrugada)
+# 🏆 CONFIGURACIÓN FINAL (Intacta)
 CONFIG_OPTIMA = [
-    # 15M: Trinidad con Cooldown 13
     ("15m", Interval.in_15_minute, 15, 0.0014, 0.49, 1.06, 19, 17, None, None, 13, 3.6, True, True),
-    # 1H: Candidato 1 con Cooldown 13
     ("1h",  Interval.in_1_hour,    60, 0.0039, 0.35, 0.81, 23, 11, 45, 70, 13, 3.6, False, False)
 ]
 
 ARCHIVO_MEMORIA = "last_signals.json"
 
-# ==========================================
-# 🧠 FUNCIONES DE APOYO
-# ==========================================
 def enviar_telegram(mensaje):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {"chat_id": TELEGRAM_CHAT_ID, "text": mensaje, "parse_mode": "HTML"}
     try:
-        requests.post(url, json=payload)
+        # Mejora del otro chat: Timeout y validación
+        resp = requests.post(url, json=payload, timeout=10)
+        if resp.status_code == 200:
+            return True
+        else:
+            print(f"   ❌ Telegram HTTP {resp.status_code}: {resp.text[:300]}")
+            return False
     except Exception as e:
-        print(f"❌ Error Telegram: {e}")
+        print(f"   ❌ Error de red Telegram: {e}")
+        return False
 
 def calcular_lotaje(entry, sl, balance, riesgo):
     dist_sl = abs(entry - sl)
@@ -60,11 +61,8 @@ def guardar_memoria(memoria):
     with open(ARCHIVO_MEMORIA, 'w') as f:
         json.dump(memoria, f, indent=4)
 
-# ==========================================
-# 🚀 LÓGICA PRINCIPAL
-# ==========================================
 def escanear_mercado():
-    print(f"\n[{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC] Iniciando escaneo (OANDA Spot)...")
+    print(f"\n[{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC] Iniciando escaneo...")
     memoria = cargar_memoria()
     
     try:
@@ -81,21 +79,16 @@ def escanear_mercado():
             df = tv.get_hist(symbol='XAUUSD', exchange='OANDA', interval=tv_interval, n_bars=150)
             
             if df is None or df.empty or len(df) < 60:
-                print(f"   ⚠️ Datos insuficientes para {tf.upper()}.")
                 continue
             
             df = df[['open', 'high', 'low', 'close']]
-            
-            # 🌎 CONVERSIÓN DE ZONA HORARIA (UTC a México)
             df.index = pd.to_datetime(df.index).tz_localize('UTC').tz_convert('America/Mexico_City').tz_localize(None)
             
-            # Calcular RSI
             delta = df['close'].diff()
             gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
             loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
             df['RSI'] = 100 - (100 / (1 + (gain / loss)))
             
-            # 🛑 ELIMINAR VELA ACTUAL (En formación)
             df = df.iloc[:-1].copy()
             if len(df) < 60: continue
             
@@ -107,7 +100,6 @@ def escanear_mercado():
             hours = df.index.hour.values
             days = df.index.dayofweek.values
             
-            # Vela 3 (Confirmación) es la última vela cerrada
             idx_conf_final = len(df) - 1
             idx_low2 = idx_conf_final - 1
             vela2 = df.iloc[idx_low2]
@@ -116,71 +108,54 @@ def escanear_mercado():
             p_low1 = low1
             p_low2 = vela2['low']
             
-            # 1. Validar Higher Low
             if p_low2 > p_low1:
-                # 2. Validar Caída Fuerte
-                ventana_caida = df.iloc[idx_low2 - 26 : idx_low2 - 6]
-                if len(ventana_caida) < 5: continue
-                caida = (ventana_caida['open'].iloc[0] - ventana_caida['close'].iloc[-1]) / ventana_caida['open'].iloc[0]
+                # Fix del bug: close[-6]
+                caida = (opens[idx_low2 - 26] - closes[idx_low2 - 6]) / opens[idx_low2 - 26]
                 
-                # 3. Validar Confirmación (Vela Verde)
                 vela_check = df.iloc[idx_low2 + 1]
                 confirmacion_ok = vela_check['close'] > vela_check['open']
                         
                 if caida >= caida_min and confirmacion_ok:
                     
                     vela_entrada = df.iloc[-1]
+                    id_senal = str(vela_entrada.name)
+                    
+                    # Guardar last_candle ANTES de los filtros
+                    last_candle = memoria[tf].get("last_candle", "")
+                    if last_candle == id_senal:
+                        continue
+                    memoria[tf]["last_candle"] = id_senal
+                    guardar_memoria(memoria)
+                    
                     hora_actual = hours[-1]
                     dia_actual = days[-1]
                     rsi_actual = rsis[-1]
                     
-                    # 🛡️ FILTRO HORARIO
                     if h_start <= h_end:
                         hora_valida = h_start <= hora_actual <= h_end
                     else:
                         hora_valida = hora_actual >= h_start or hora_actual <= h_end
+                    if not hora_valida: continue
                         
-                    if not hora_valida:
-                        continue
+                    if evitar_dom and dia_actual == 6: continue
+                    if evitar_mad and (hora_actual == 2 or hora_actual == 3): continue
                         
-                    # 🛡️ FILTROS DE CONTEXTO (Domingos y Madrugada)
-                    if evitar_dom and dia_actual == 6: # 6 = Domingo
-                        continue
-                    if evitar_mad and (hora_actual == 2 or hora_actual == 3):
-                        continue
-                        
-                    # 🛡️ FILTRO RSI
-                    if rsi_min is not None and rsi_actual < rsi_min:
-                        continue
-                    if rsi_max is not None and rsi_actual > rsi_max:
-                        continue
+                    if rsi_min is not None and rsi_actual < rsi_min: continue
+                    if rsi_max is not None and rsi_actual > rsi_max: continue
                         
                     target = np.max(highs[max(0, idx_low2 - 50) : idx_low2])
                     entrada = vela_entrada['close']
 
-                    # 🛑 FILTRO DE TARGET MÍNIMO
-                    if (target - entrada) < min_target:
-                        continue
+                    if (target - entrada) < min_target: continue
                     
-                    # 🛡️ CALCULO DEL SL Y TP
                     distancia_original = entrada - p_low1
                     sl = entrada - (distancia_original * sl_mult)
                     
                     if entrada <= sl or target <= entrada: continue
                     
                     tp = entrada + (target - entrada) * tp_ratio
-                    id_senal = str(vela_entrada.name)
                     
-                    # 🛑 VERIFICAR MEMORIA Y COOLDOWN
-                    last_candle = memoria[tf].get("last_candle", "")
                     last_trade = memoria[tf].get("last_trade", "")
-                    
-                    if last_candle == id_senal:
-                        continue
-                        
-                    memoria[tf]["last_candle"] = id_senal
-                    
-                    # Verificar Cooldown
                     cooldown_activo = False
                     if last_trade:
                         last_trade_dt = pd.to_datetime(last_trade)
@@ -190,11 +165,10 @@ def escanear_mercado():
                             cooldown_activo = True
                             
                     if cooldown_activo:
-                        print(f"   🛑 {tf.upper()}: Cooldown activo (esperando {cooldown_velas} velas).")
-                        guardar_memoria(memoria)
+                        print(f"   🛑 {tf.upper()}: Cooldown activo.")
                         continue
                         
-                    # 🚨 SI LLEGAMOS AQUÍ, ES UNA SEÑAL VÁLIDA
+                    # 🚨 GUARDAMOS EL COOLDOWN ANTES DE ENVIAR (El fix crítico)
                     memoria[tf]["last_trade"] = id_senal
                     guardar_memoria(memoria)
                     
@@ -209,25 +183,19 @@ def escanear_mercado():
                         f"🕒 <b>Hora (MX):</b> {hora_mx}\n"
                         f"📈 <b>Dirección:</b> LONG\n"
                         f"🎯 <b>Entrada:</b> {entrada:.2f}\n"
-                        f"🔴 <b>SL (Optimizado):</b> {sl:.2f}\n"
+                        f"🔴 <b>SL:</b> {sl:.2f}\n"
                         f"✅ <b>TP ({int(tp_ratio*100)}%):</b> {tp:.2f}\n"
                         f"━━━━━━━━━━━━━━━━━━\n"
                         f"⚖️ <b>Lotaje Sugerido:</b> {lote} lots\n"
                         f"💰 <b>Riesgo:</b> ${BALANCE_CUENTA * RIESGO_POR_OPERACION:.2f}\n"
                         f"<i>Generado por AlgoBot (Elite)</i>"
                     )
-                    enviar_telegram(mensaje)
-                    print(f"   ✅ ¡SEÑAL ENVIADA para {tf.upper()}! (Cierre: {entrada:.2f})")
                     
-                else:
-                    memoria[tf]["last_candle"] = str(df.iloc[-1].name)
-                    guardar_memoria(memoria)
-                    print(f"   ⏳ Sin patrón válido en {tf.upper()}.")
-            else:
-                memoria[tf]["last_candle"] = str(df.iloc[-1].name)
-                guardar_memoria(memoria)
-                print(f"   ⏳ Sin patrón válido en {tf.upper()}.")
-                
+                    if enviar_telegram(mensaje):
+                        print(f"   ✅ ¡SEÑAL ENVIADA para {tf.upper()}! (Cierre: {entrada:.2f})")
+                    else:
+                        print(f"   ⚠️ Falló Telegram, pero el Cooldown ya se guardó correctamente.")
+                        
         except Exception as e:
             print(f"   ❌ Error procesando {tf}: {e}")
         
