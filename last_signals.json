@@ -6,8 +6,8 @@
             "entry": 4045.89,
             "sl": 4035.1681000000003,
             "tp": 4086.1876,
-            "status": "OPEN",
-            "exit_time": null
+            "status": "LOSS",
+            "exit_time": "2026-11-06 07:30:00"
         }
     },
     "1h": {
