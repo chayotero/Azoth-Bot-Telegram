@@ -106,7 +106,6 @@ def escanear_mercado():
                     entry_idx = df.index.get_loc(entry_time)
                     
                     if entry_idx < len(df) - 1:
-                        # Buscamos velas posteriores a la entrada
                         v_highs = highs[entry_idx+1:]
                         v_lows = lows[entry_idx+1:]
                         
@@ -114,7 +113,6 @@ def escanear_mercado():
                         hit_tp = np.where(v_highs >= last_trade_info["tp"])[0]
                         
                         if len(hit_sl) > 0 and len(hit_tp) > 0:
-                            # Si tocó ambos, el que ocurrió primero gana
                             last_trade_info["status"] = "LOSS" if hit_sl[0] < hit_tp[0] else "WIN"
                             exit_idx = entry_idx + 1 + min(hit_sl[0], hit_tp[0])
                         elif len(hit_sl) > 0:
@@ -124,7 +122,6 @@ def escanear_mercado():
                             last_trade_info["status"] = "WIN"
                             exit_idx = entry_idx + 1 + hit_tp[0]
                         else:
-                            # Sigue abierto
                             last_trade_info["exit_time"] = None
                         
                         if last_trade_info["status"] != "OPEN":
@@ -134,10 +131,10 @@ def escanear_mercado():
                             print(f"   🔄 {tf.upper()}: Trade anterior cerrado como {last_trade_info['status']}.")
                         else:
                             print(f"   ⏳ {tf.upper()}: Trade anterior aún en curso.")
-                            continue # No buscamos nuevas señales hasta que el anterior cierre
+                            continue
             
             # ==========================================
-            # 🛑 PASO 2: COMPROBAR COOLDOWN (SOLO SI LA ÚLTIMA FUE LOSS)
+            # 🛑 PASO 2: COMPROBAR COOLDOWN
             # ==========================================
             cooldown_activo = False
             if last_trade_info and last_trade_info.get("status") == "LOSS":
@@ -199,14 +196,15 @@ def escanear_mercado():
 
                     if (target - entrada) < min_target: continue
                     
-                    distancia_original = entrada - p_low1
-                    sl = entrada - (distancia_original * sl_mult)
+                    # ==========================================
+                    # 🛑 STOP LOSS OPTIMIZADO (FIJO EN LOW ANTERIOR)
+                    # ==========================================
+                    sl = p_low1
                     
                     if entrada <= sl or target <= entrada: continue
                     
                     tp = entrada + (target - entrada) * tp_ratio
                     
-                    # Guardar nueva operación
                     memoria[tf]["last_trade"] = {
                         "entry_time": id_senal,
                         "entry": float(entrada),
