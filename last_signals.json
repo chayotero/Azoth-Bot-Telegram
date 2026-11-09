@@ -11,14 +11,14 @@
         }
     },
     "1h": {
-        "last_candle": "2026-11-06 10:00:00",
+        "last_candle": "2026-11-08 18:00:00",
         "last_trade": {
             "entry_time": "2026-11-06 10:00:00",
             "entry": 4067.12,
             "sl": 4036.9150999999997,
             "tp": 4095.05,
-            "status": "OPEN",
-            "exit_time": null
+            "status": "WIN",
+            "exit_time": "2026-11-08 18:00:00"
         }
     }
 }
