@@ -1,14 +1,13 @@
-name: XAUUSD Algo Bot
+name: XAUUSD SMC Bot
 
 on:
   schedule:
-    # Se ejecuta cada 30 minutos (al minuto 0 y 30) para coincidir con el cierre de las velas
-    - cron: '0,30 * * * *'
+    # Ejecución cada 5 minutos para no perder el cierre de las velas de 1m y 5m
+    - cron: '*/5 * * * *'
   workflow_dispatch: 
 
-# Evita que dos ejecuciones choquen y corrompan la memoria
 concurrency:
-  group: xauusd-bot
+  group: xauusd-smc-bot
   cancel-in-progress: false
 
 jobs:
@@ -28,23 +27,24 @@ jobs:
       - name: Instalar dependencias
         run: |
           python -m pip install --upgrade pip
-          pip install pandas numpy requests
+          pip install pandas numpy requests ta
           pip install --upgrade --no-cache-dir git+https://github.com/rongardF/tvdatafeed.git
 
       - name: Ejecutar Escáner
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python bot_scanner.py
 
       - name: Guardar Memoria de Señales
         run: |
           git config --global user.name 'GitHub Action Bot'
           git config --global user.email 'action@github.com'
-          # Solo guarda si el archivo existe
-          if [ -f last_signals.json ]; then
-            git add last_signals.json
-            git commit -m "Actualizar memoria [Skip CI]" || exit 0
-            # Sincroniza por si acaso antes de hacer push
+          if [ -f last_signals_smc.json ]; then
+            git add last_signals_smc.json
+            git commit -m "Actualizar memoria SMC [Skip CI]" || exit 0
             git pull --rebase origin main || true 
             git push || exit 0
           else
-            echo "No hay archivo last_signals.json para guardar."
+            echo "No hay archivo last_signals_smc.json para guardar."
           fi
