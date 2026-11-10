@@ -6,280 +6,208 @@ import os
 from datetime import datetime
 import time
 import warnings
-warnings.filterwarnings('ignore')
-
 from tvDatafeed import TvDatafeed, Interval
+import ta
+
+warnings.filterwarnings('ignore')
 
 # ==========================================
 # ⚙️ CONFIGURACIÓN DEL BOT Y CUENTA
 # ==========================================
-# Se leen de los Secrets de GitHub Actions (Settings -> Secrets -> Actions)
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "TU_TOKEN_AQUI") 
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "TU_CHAT_ID_AQUI")
 BALANCE_CUENTA = 1000                   
 RIESGO_POR_OPERACION = 0.02             
 CONTRATO_ORO = 100                      
 
-# ==========================================
-# 🏆 CONFIGURACIÓN GANADORA (El Monstruo de +158R)
-# ==========================================
-# Formato: (TF, Intervalo, Minutos, Dirección, Caída/Subida, TP_Ratio, SL_Mult, H_Inicio, H_Fin, RSI_Min, RSI_Max, Cooldown, Target_Min, Evitar_Dom, Evitar_Mad)
-CONFIG_OPTIMA = [
-    # MOTOR SHORT (30M): El francotirador de caídas (TP 20%)
-    ("30m", Interval.in_30_minute, 30, "SHORT", 0.0025, 0.20, 0.95, 23, 17, None, 75, 13, 3.6, False, True),
-    
-    # MOTOR LONG (1H): El cazador de tendencias alcistas (TP 25%)
-    ("1h",  Interval.in_1_hour,    60, "LONG",  0.0039, 0.25, 0.81, 23, 11, 45, 70, 13, 3.6, False, False)
+TARGET_RR = 1.23
+OB_LOOKBACK = 7
+USE_RETRACEMENT = True 
+
+# 🏆 TODAS LAS TEMPORALIDADES GANADORAS
+CONFIG_TFS = [
+    {"tf": "1m",  "interval": Interval.in_1_minute,  "minutes": 1},
+    {"tf": "5m",  "interval": Interval.in_5_minute,  "minutes": 5},
+    {"tf": "15m", "interval": Interval.in_15_minute, "minutes": 15},
+    {"tf": "30m", "interval": Interval.in_30_minute, "minutes": 30},
+    {"tf": "1h",  "interval": Interval.in_1_hour,    "minutes": 60},
+    {"tf": "4h",  "interval": Interval.in_4_hour,    "minutes": 240}
 ]
 
-ARCHIVO_MEMORIA = "last_signals.json"
+ARCHIVO_MEMORIA = "last_signals_smc.json"
 
 def enviar_telegram(mensaje):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {"chat_id": TELEGRAM_CHAT_ID, "text": mensaje, "parse_mode": "HTML"}
     try:
-        resp = requests.post(url, json=payload, timeout=10)
-        return resp.status_code == 200
+        return requests.post(url, json=payload, timeout=10).status_code == 200
     except Exception as e:
-        print(f"   ❌ Error de red Telegram: {e}")
+        print(f"Error Telegram: {e}")
         return False
 
 def calcular_lotaje(entry, sl, balance, riesgo):
     dist_sl = abs(entry - sl)
     if dist_sl == 0: return 0.01
-    lotaje = (balance * riesgo) / (dist_sl * CONTRATO_ORO)
-    return round(max(lotaje, 0.01), 2)
+    return round(max((balance * riesgo) / (dist_sl * CONTRATO_ORO), 0.01), 2)
 
 def cargar_memoria():
+    memoria_base = {cfg["tf"]: {"last_candle": "", "active_trade": None} for cfg in CONFIG_TFS}
     if os.path.exists(ARCHIVO_MEMORIA):
         try:
             with open(ARCHIVO_MEMORIA, 'r') as f:
-                return json.load(f)
-        except json.JSONDecodeError:
-            pass
-    return {cfg[0]: {"last_candle": "", "last_trade": None} for cfg in CONFIG_OPTIMA}
+                mem = json.load(f)
+                for k in memoria_base:
+                    if k not in mem: mem[k] = memoria_base[k]
+                return mem
+        except: pass
+    return memoria_base
 
 def guardar_memoria(memoria):
     with open(ARCHIVO_MEMORIA, 'w') as f:
         json.dump(memoria, f, indent=4)
 
-def escanear_mercado():
-    print(f"\n[{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC] Iniciando escaneo...")
-    memoria = cargar_memoria()
+def escanear_tf(cfg, memoria):
+    tf_name = cfg["tf"]
+    print(f"🔍 Analizando SMC en {tf_name.upper()}...")
     
     try:
         tv = TvDatafeed()
+        # Pedimos 500 velas (suficiente para ATR y estructura en cualquier TF)
+        df = tv.get_hist(symbol='XAUUSD', exchange='OANDA', interval=cfg["interval"], n_bars=500)
     except Exception as e:
-        print(f"❌ Error conectando a TradingView: {e}")
+        print(f"Error TvDatafeed en {tf_name}: {e}")
         return
 
-    for cfg in CONFIG_OPTIMA:
-        (tf, tv_interval, tf_minutes, direccion, caida_min, tp_ratio, sl_mult, 
-         h_start, h_end, rsi_min, rsi_max, cooldown_velas, min_target, 
-         evitar_dom, evitar_mad) = cfg
-        
-        print(f"🔍 Analizando {tf.upper()} - Motor {direccion}...")
-        
-        try:
-            # Pedimos 1000 velas para tener suficiente historial y no perder trades abiertos
-            df = tv.get_hist(symbol='XAUUSD', exchange='OANDA', interval=tv_interval, n_bars=1000)
-            
-            if df is None or df.empty or len(df) < 100:
-                print(f"   ⚠️ Datos insuficientes para {tf}.")
-                continue
-            
-            df = df[['open', 'high', 'low', 'close']]
-            df.index = pd.to_datetime(df.index).tz_localize('UTC').tz_convert('America/Mexico_City').tz_localize(None)
-            
-            delta = df['close'].diff()
-            gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-            loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-            df['RSI'] = 100 - (100 / (1 + (gain / loss)))
-            
-            df = df.iloc[:-1].copy() # Quitar vela en formación
-            if len(df) < 100: continue
-            
-            opens = df['open'].values
-            highs = df['high'].values
-            lows = df['low'].values
-            closes = df['close'].values
-            rsis = df['RSI'].values
-            hours = df.index.hour.values
-            days = df.index.dayofweek.values
-            
-            # ==========================================
-            # PASO 1: ACTUALIZAR TRADE ANTERIOR Y TRAILING STOP
-            # ==========================================
-            last_trade_info = memoria[tf].get("last_trade")
-            
-            if last_trade_info and last_trade_info.get("status") == "OPEN":
-                entry_time = pd.to_datetime(last_trade_info["entry_time"])
-                
-                if entry_time in df.index:
-                    entry_idx = df.index.get_loc(entry_time)
-                    
-                    if entry_idx < len(df) - 1:
-                        v_highs = highs[entry_idx+1:]
-                        v_lows = lows[entry_idx+1:]
-                        
-                        tp_dist = abs(last_trade_info["tp"] - last_trade_info["entry"])
-                        trigger_price = (last_trade_info["entry"] + (tp_dist * 0.40)) if direccion == "LONG" else (last_trade_info["entry"] - (tp_dist * 0.40))
-                        
-                        status = "OPEN"
-                        exit_idx = None
-                        
-                        # Evaluación vela por vela (Trailing Stop Dinámico)
-                        for j in range(len(v_highs)):
-                            if direccion == "LONG":
-                                if v_highs[j] >= trigger_price:
-                                    nuevo_sl = v_highs[j] - (tp_dist * 0.10)
-                                    if nuevo_sl > last_trade_info["sl"] and nuevo_sl >= last_trade_info["entry"]:
-                                        last_trade_info["sl"] = float(nuevo_sl)
-                            else:
-                                if v_lows[j] <= trigger_price:
-                                    nuevo_sl = v_lows[j] + (tp_dist * 0.10)
-                                    if nuevo_sl < last_trade_info["sl"] and nuevo_sl <= last_trade_info["entry"]:
-                                        last_trade_info["sl"] = float(nuevo_sl)
+    if df is None or len(df) < 200: return
 
-                            if direccion == "LONG":
-                                hit_sl = v_lows[j] <= last_trade_info["sl"]
-                                hit_tp = v_highs[j] >= last_trade_info["tp"]
-                            else:
-                                hit_sl = v_highs[j] >= last_trade_info["sl"]
-                                hit_tp = v_lows[j] <= last_trade_info["tp"]
-                            
-                            if hit_sl or hit_tp:
-                                status = "TRAIL" if (hit_sl and ((direccion=="LONG" and last_trade_info["sl"] > last_trade_info["entry"]) or (direccion=="SHORT" and last_trade_info["sl"] < last_trade_info["entry"]))) else ("LOSS" if hit_sl else "WIN")
-                                exit_idx = entry_idx + 1 + j
-                                break
-                        
-                        if status != "OPEN":
-                            last_trade_info["status"] = status
-                            last_trade_info["exit_time"] = str(df.index[exit_idx])
-                            memoria[tf]["last_trade"] = last_trade_info
-                            guardar_memoria(memoria)
-                            print(f"   🔄 {tf.upper()}: Trade anterior cerrado como {status}.")
-                        else:
-                            print(f"   ⏳ {tf.upper()}: Trade en curso.")
-                            continue
-                    else:
-                        continue
-                else:
-                    continue
-            
-            # ==========================================
-            # PASO 2: COOLDOWN
-            # ==========================================
-            if last_trade_info and last_trade_info.get("status") == "LOSS":
-                exit_time = pd.to_datetime(last_trade_info["exit_time"])
-                minutes_diff = (df.index[-1] - exit_time).total_seconds() / 60
-                if minutes_diff < (cooldown_velas * tf_minutes):
-                    continue
-            
-            # ==========================================
-            # PASO 3: BUSCAR NUEVO PATRÓN (GEOMETRÍA X=10)
-            # ==========================================
-            idx_conf_final = len(df) - 1
-            idx_low2 = idx_conf_final - 1
-            vela2 = df.iloc[idx_low2]
-            x_dist = 10
-            
-            if direccion == "LONG":
-                low1 = np.min(lows[idx_low2 - x_dist : idx_low2])
-                low2 = vela2['low']
-                
-                if low2 > low1 and ((low2 - low1) / low1 <= 0.005):
-                    caida = (opens[idx_low2 - 26] - closes[idx_low2 - 6]) / opens[idx_low2 - 26]
-                    vela_check = df.iloc[idx_low2 + 1]
-                    
-                    if caida >= caida_min and vela_check['close'] > vela_check['open']:
-                        entrada = vela_check['close']
-                        target = np.max(highs[max(0, idx_low2 - 50) : idx_low2])
-                        
-                        if (target - entrada) >= min_target:
-                            sl = entrada - ((entrada - low1) * sl_mult)
-                            tp = entrada + ((target - entrada) * tp_ratio)
-                            
-                            if entrada > sl and target > entrada:
-                                ejecutar_senal(df, tf, direccion, entrada, sl, tp, tp_ratio, hours, days, rsis, memoria)
-                                
-            else: # SHORT
-                high1 = np.max(highs[idx_low2 - x_dist : idx_low2])
-                high2 = vela2['high']
-                
-                if high2 < high1 and ((high1 - high2) / high1 <= 0.005):
-                    subida = (closes[idx_low2 - 6] - opens[idx_low2 - 26]) / opens[idx_low2 - 26]
-                    vela_check = df.iloc[idx_low2 + 1]
-                    
-                    if subida >= caida_min and vela_check['close'] < vela_check['open']:
-                        entrada = vela_check['close']
-                        target = np.min(lows[max(0, idx_low2 - 50) : idx_low2])
-                        
-                        if (entrada - target) >= min_target:
-                            sl = entrada + ((high1 - entrada) * sl_mult)
-                            tp = entrada - ((entrada - target) * tp_ratio)
-                            
-                            if entrada < sl and target < entrada:
-                                ejecutar_senal(df, tf, direccion, entrada, sl, tp, tp_ratio, hours, days, rsis, memoria)
-                                
-        except Exception as e:
-            print(f"   ❌ Error procesando {tf}: {e}")
-        
-        time.sleep(1)
-
-def ejecutar_senal(df, tf, direccion, entrada, sl, tp, tp_ratio, hours, days, rsis, memoria):
-    cfg_data = [cfg for cfg in CONFIG_OPTIMA if cfg[0] == tf][0]
-    h_start, h_end = cfg_data[7], cfg_data[8]
-    rsi_min, rsi_max = cfg_data[9], cfg_data[10]
-    evitar_dom, evitar_mad = cfg_data[13], cfg_data[14]
-
-    hora_actual, dia_actual, rsi_actual = hours[-1], days[-1], rsis[-1]
-
-    if h_start <= h_end: h_ok = h_start <= hora_actual <= h_end
-    else: h_ok = hora_actual >= h_start or hora_actual <= h_end
-    if not h_ok: return
-    if evitar_dom and dia_actual == 6: return
-    if evitar_mad and (hora_actual in (2, 3)): return
-    if rsi_min is not None and rsi_actual < rsi_min: return
-    if rsi_max is not None and rsi_actual > rsi_max: return
-
-    vela_entrada = df.iloc[-1]
-    id_senal = str(vela_entrada.name)
+    df = df[['open', 'high', 'low', 'close']].copy()
+    df.index = pd.to_datetime(df.index).tz_localize('UTC').tz_convert('America/New_York').tz_localize(None)
+    df = df.iloc[:-1] 
     
-    if memoria[tf].get("last_candle") == id_senal: return
-    memoria[tf]["last_candle"] = id_senal
-    guardar_memoria(memoria)
-
-    memoria[tf]["last_trade"] = {
-        "entry_time": id_senal, "entry": float(entrada), "sl": float(sl),
-        "tp": float(tp), "status": "OPEN", "exit_time": None
-    }
-    guardar_memoria(memoria)
-
-    lote = calcular_lotaje(entrada, sl, BALANCE_CUENTA, RIESGO_POR_OPERACION)
-    hora_mx = vela_entrada.name.strftime('%H:%M')
-    icono = "📈" if direccion == "LONG" else "📉"
-    texto_dir = "COMPRA (LONG)" if direccion == "LONG" else "VENTA (SHORT)"
+    df['ATR'] = ta.volatility.average_true_range(df['high'], df['low'], df['close'], window=33)
     
-    mensaje = (
-        f"🚨 <b>¡NUEVA SEÑAL (XAUUSD SPOT)!</b> 🚨\n"
-        f"━━━━━━━━━━━━━━━━━━\n"
-        f"📊 <b>Activo:</b> XAUUSD (OANDA)\n"
-        f"⏱️ <b>Temporalidad:</b> {tf.upper()}\n"
-        f"🕒 <b>Hora (MX):</b> {hora_mx}\n"
-        f"{icono} <b>Dirección:</b> {texto_dir}\n"
-        f"🎯 <b>Entrada:</b> {entrada:.2f}\n"
-        f"🔴 <b>SL Inicial:</b> {sl:.2f}\n"
-        f"✅ <b>TP ({int(tp_ratio*100)}%):</b> {tp:.2f}\n"
-        f"🛡️ <b>Trailing Stop:</b> Activado al 40%\n"
-        f"━━━━━━━━━━━━━━━━━━\n"
-        f"⚖️ <b>Lotaje Sugerido:</b> {lote} lots\n"
-        f"💰 <b>Riesgo:</b> ${BALANCE_CUENTA * RIESGO_POR_OPERACION:.2f}\n"
-        f"<i>Generado por AlgoBot (Elite)</i>"
-    )
+    # HTF Dinámico
+    htf_minutes = max(120, cfg["minutes"] * 4)
+    htf_rule = f'{htf_minutes}min' if htf_minutes < 1440 else '1D'
     
-    if enviar_telegram(mensaje):
-        print(f"   ✅ ¡SEÑAL {direccion} ENVIADA para {tf.upper()}!")
+    try:
+        df_htf = df.resample(htf_rule).agg({'open': 'first', 'high': 'max', 'low': 'min', 'close': 'last'}).dropna()
+        df_htf['HTF_EMA'] = ta.trend.ema_indicator(df_htf['close'], window=5)
+        df = df.join(df_htf['HTF_EMA'], rsuffix='_htf').ffill()
+    except Exception as e:
+        print(f"Error resampleando HTF en {tf_name}: {e}")
+        return
+
+    opens, highs, lows, closes = df['open'].values, df['high'].values, df['low'].values, df['close'].values
+    atrs, htf_emas = df['ATR'].values, df['HTF_EMA'].values
+    hours, days = df.index.hour.values, df.index.dayofweek.values
+    
+    trend = 0
+    last_pivot_high, last_pivot_low = np.nan, np.nan
+    leg_high, leg_low = np.nan, np.nan
+    
+    # Solo analizamos las últimas 10 velas para no saturar
+    for i in range(len(df) - 10, len(df)):
+        ph = highs[i-1] if (highs[i-1] > highs[i-2] and highs[i-1] > highs[i]) else np.nan
+        pl = lows[i-1] if (lows[i-1] < lows[i-2] and lows[i-1] < lows[i]) else np.nan
+        
+        if not np.isnan(ph): last_pivot_high = ph
+        if not np.isnan(pl): last_pivot_low = pl
+        
+        is_high_broken = closes[i] > last_pivot_high if not np.isnan(last_pivot_high) else False
+        is_low_broken = closes[i] < last_pivot_low if not np.isnan(last_pivot_low) else False
+        
+        choch_bull, bos_bull, choch_bear, bos_bear = False, False, False, False
+        
+        if is_high_broken:
+            if trend == -1: choch_bull = True; leg_high = highs[i]; leg_low = last_pivot_low
+            elif trend == 1: bos_bull = True
+            trend = 1
+        if is_low_broken:
+            if trend == 1: choch_bear = True; leg_low = lows[i]; leg_high = last_pivot_high
+            elif trend == -1: bos_bear = True
+            trend = -1
+            
+        if trend == 1: leg_high = max(leg_high if not np.isnan(leg_high) else highs[i], highs[i])
+        if trend == -1: leg_low = min(leg_low if not np.isnan(leg_low) else lows[i], lows[i])
+        
+        equilibrium = (leg_high + leg_low) / 2.0 if not np.isnan(leg_high) and not np.isnan(leg_low) else np.nan
+        strong_candle = max(highs[i] - lows[i], highs[i-1] - lows[i-1]) >= atrs[i] * 0.6
+        disp_bull = strong_candle and (choch_bull or bos_bull)
+        disp_bear = strong_candle and (choch_bear or bos_bear)
+        
+        htf_bias_bull = closes[i] > htf_emas[i] if not np.isnan(htf_emas[i]) else True
+        htf_bias_bear = closes[i] < htf_emas[i] if not np.isnan(htf_emas[i]) else True
+        in_session = (7 <= hours[i] <= 16) and (days[i] != 6)
+        
+        if i >= len(df) - 3:
+            if disp_bull and htf_bias_bull and in_session:
+                ob_offset = 0; lowest_ob_low = 1e10
+                for k in range(1, OB_LOOKBACK + 1):
+                    if closes[i-k] <= opens[i-k] and lows[i-k] < lowest_ob_low:
+                        lowest_ob_low = lows[i-k]; ob_offset = k
+                if ob_offset > 0:
+                    ob_top = highs[i-ob_offset]; ob_bottom = lows[i-ob_offset]
+                    if np.isnan(equilibrium) or ob_top <= equilibrium:
+                        entry_p = ob_top if USE_RETRACEMENT else closes[i]
+                        sl_p = ob_bottom; risk_p = entry_p - sl_p
+                        if risk_p > 0:
+                            tp_p = entry_p + (risk_p * TARGET_RR)
+                            id_senal = str(df.index[i])
+                            if memoria[tf_name]["last_candle"] != id_senal and memoria[tf_name]["active_trade"] is None:
+                                memoria[tf_name]["last_candle"] = id_senal
+                                memoria[tf_name]["active_trade"] = {"dir": "LONG", "time": id_senal}
+                                guardar_memoria(memoria)
+                                lote = calcular_lotaje(entry_p, sl_p, BALANCE_CUENTA, RIESGO_POR_OPERACION)
+                                msg = (f"🚨 <b>¡NUEVA SEÑAL SMC ({tf_name.upper()})!</b> 🚨\n"
+                                       f"🟢 <b>Dirección:</b> COMPRA\n"
+                                       f"🎯 <b>Entrada:</b> {entry_p:.2f}\n"
+                                       f"🔴 <b>SL:</b> {sl_p:.2f}\n"
+                                       f"✅ <b>TP:</b> {tp_p:.2f}\n"
+                                       f"⚖️ <b>Lote:</b> {lote}")
+                                enviar_telegram(msg)
+
+            elif disp_bear and htf_bias_bear and in_session:
+                ob_offset_s = 0; highest_ob_high = -1e10
+                for k in range(1, OB_LOOKBACK + 1):
+                    if closes[i-k] >= opens[i-k] and highs[i-k] > highest_ob_high:
+                        highest_ob_high = highs[i-k]; ob_offset_s = k
+                if ob_offset_s > 0:
+                    ob_top_s = highs[i-ob_offset_s]; ob_bottom_s = lows[i-ob_offset_s]
+                    if np.isnan(equilibrium) or ob_bottom_s >= equilibrium:
+                        entry_ps = ob_bottom_s if USE_RETRACEMENT else closes[i]
+                        sl_ps = ob_top_s; risk_ps = sl_ps - entry_ps
+                        if risk_ps > 0:
+                            tp_ps = entry_ps - (risk_ps * TARGET_RR)
+                            id_senal = str(df.index[i])
+                            if memoria[tf_name]["last_candle"] != id_senal and memoria[tf_name]["active_trade"] is None:
+                                memoria[tf_name]["last_candle"] = id_senal
+                                memoria[tf_name]["active_trade"] = {"dir": "SHORT", "time": id_senal}
+                                guardar_memoria(memoria)
+                                lote = calcular_lotaje(entry_ps, sl_ps, BALANCE_CUENTA, RIESGO_POR_OPERACION)
+                                msg = (f"🚨 <b>¡NUEVA SEÑAL SMC ({tf_name.upper()})!</b> 🚨\n"
+                                       f"🔴 <b>Dirección:</b> VENTA\n"
+                                       f"🎯 <b>Entrada:</b> {entry_ps:.2f}\n"
+                                       f"🔴 <b>SL:</b> {sl_ps:.2f}\n"
+                                       f"✅ <b>TP:</b> {tp_ps:.2f}\n"
+                                       f"⚖️ <b>Lote:</b> {lote}")
+                                enviar_telegram(msg)
+
+    if memoria[tf_name]["active_trade"] is not None:
+        time_trade = pd.to_datetime(memoria[tf_name]["active_trade"]["time"])
+        # Liberamos la memoria después de 10 velas de la TF
+        if (df.index[-1] - time_trade).total_seconds() / 60 > (cfg["minutes"] * 10):
+            print(f"🧹 Liberando memoria en {tf_name.upper()}")
+            memoria[tf_name]["active_trade"] = None
+            guardar_memoria(memoria)
+
+def escanear_mercado():
+    print(f"\n[{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC] Iniciando escaneo SMC Multi-TF...")
+    memoria = cargar_memoria()
+    
+    for cfg in CONFIG_TFS:
+        escanear_tf(cfg, memoria)
+        time.sleep(2) # Pausa para no saturar TradingView
 
 if __name__ == "__main__":
     escanear_mercado()
