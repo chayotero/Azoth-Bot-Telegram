@@ -2,8 +2,8 @@ name: XAUUSD SMC Bot
 
 on:
   schedule:
-    # Ejecución cada 5 minutos para no perder el cierre de las velas de 1m y 5m
-    - cron: '*/5 * * * *'
+    # Ejecución cada 15 minutos para no perder el cierre de las velas de 15m y 1h
+    - cron: '*/15 * * * *'
   workflow_dispatch: 
 
 concurrency:
