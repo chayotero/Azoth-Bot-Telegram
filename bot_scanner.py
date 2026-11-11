@@ -3,7 +3,7 @@ import numpy as np
 import requests
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 import time
 import warnings
 from tvDatafeed import TvDatafeed, Interval
@@ -14,8 +14,9 @@ warnings.filterwarnings('ignore')
 # ==========================================
 # ⚙️ CONFIGURACIÓN DEL BOT Y CUENTA
 # ==========================================
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "TU_TOKEN_AQUI") 
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "TU_CHAT_ID_AQUI")
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN") 
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+
 BALANCE_CUENTA = 1000                   
 RIESGO_POR_OPERACION = 0.02             
 CONTRATO_ORO = 100                      
@@ -23,8 +24,8 @@ CONTRATO_ORO = 100
 TARGET_RR = 1.23
 OB_LOOKBACK = 7
 USE_RETRACEMENT = True 
+COOLDOWN_VELAS = 13 
 
-# 🏆 TODAS LAS TEMPORALIDADES GANADORAS
 CONFIG_TFS = [
     {"tf": "1m",  "interval": Interval.in_1_minute,  "minutes": 1},
     {"tf": "5m",  "interval": Interval.in_5_minute,  "minutes": 5},
@@ -37,12 +38,15 @@ CONFIG_TFS = [
 ARCHIVO_MEMORIA = "last_signals_smc.json"
 
 def enviar_telegram(mensaje):
+    if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
+        print("❌ Faltan los secretos de Telegram.")
+        return False
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {"chat_id": TELEGRAM_CHAT_ID, "text": mensaje, "parse_mode": "HTML"}
     try:
         return requests.post(url, json=payload, timeout=10).status_code == 200
     except Exception as e:
-        print(f"Error Telegram: {e}")
+        print(f"❌ Error de red Telegram: {e}")
         return False
 
 def calcular_lotaje(entry, sl, balance, riesgo):
@@ -51,7 +55,11 @@ def calcular_lotaje(entry, sl, balance, riesgo):
     return round(max((balance * riesgo) / (dist_sl * CONTRATO_ORO), 0.01), 2)
 
 def cargar_memoria():
-    memoria_base = {cfg["tf"]: {"last_candle": "", "active_trade": None} for cfg in CONFIG_TFS}
+    # Añadimos la llave 'init_sent' al diccionario principal
+    memoria_base = {"init_sent": False}
+    for cfg in CONFIG_TFS:
+        memoria_base[cfg["tf"]] = {"active_trade": None, "cooldown_until": None}
+        
     if os.path.exists(ARCHIVO_MEMORIA):
         try:
             with open(ARCHIVO_MEMORIA, 'r') as f:
@@ -59,20 +67,19 @@ def cargar_memoria():
                 for k in memoria_base:
                     if k not in mem: mem[k] = memoria_base[k]
                 return mem
-        except: pass
+        except Exception as e:
+            print(f"Error cargando memoria: {e}")
     return memoria_base
 
 def guardar_memoria(memoria):
     with open(ARCHIVO_MEMORIA, 'w') as f:
         json.dump(memoria, f, indent=4)
 
-def escanear_tf(cfg, memoria):
+def escanear_tf(tv, cfg, memoria):
     tf_name = cfg["tf"]
     print(f"🔍 Analizando SMC en {tf_name.upper()}...")
     
     try:
-        tv = TvDatafeed()
-        # Pedimos 500 velas (suficiente para ATR y estructura en cualquier TF)
         df = tv.get_hist(symbol='XAUUSD', exchange='OANDA', interval=cfg["interval"], n_bars=500)
     except Exception as e:
         print(f"Error TvDatafeed en {tf_name}: {e}")
@@ -84,9 +91,69 @@ def escanear_tf(cfg, memoria):
     df.index = pd.to_datetime(df.index).tz_localize('UTC').tz_convert('America/New_York').tz_localize(None)
     df = df.iloc[:-1] 
     
+    # ==========================================
+    # 🛡️ 1. VERIFICAR SI EL TRADE ACTIVO YA CERRÓ
+    # ==========================================
+    active = memoria[tf_name]["active_trade"]
+    if active is not None:
+        entry_time = pd.to_datetime(active["time"])
+        if entry_time in df.index:
+            entry_idx = df.index.get_loc(entry_time)
+            
+            if entry_idx < len(df) - 1:
+                v_highs = df['high'].values[entry_idx+1:]
+                v_lows = df['low'].values[entry_idx+1:]
+                
+                is_long = active["dir"] == "LONG"
+                hit_sl, hit_tp, triggered = False, False, active["status"] == "TRIGGERED"
+                
+                for j in range(len(v_highs)):
+                    if not triggered:
+                        if (is_long and v_lows[j] <= active["entry"]) or (not is_long and v_highs[j] >= active["entry"]):
+                            triggered = True
+                        elif (is_long and v_highs[j] >= active["tp"]) or (not is_long and v_lows[j] <= active["tp"]):
+                            print(f"⚪ {tf_name.upper()}: Trade Cancelado (TP antes de entrada).")
+                            memoria[tf_name]["active_trade"] = None
+                            guardar_memoria(memoria)
+                            break
+                            
+                    if triggered:
+                        if (is_long and v_lows[j] <= active["sl"]) or (not is_long and v_highs[j] >= active["sl"]):
+                            hit_sl = True
+                        elif (is_long and v_highs[j] >= active["tp"]) or (not is_long and v_lows[j] <= active["tp"]):
+                            hit_tp = True
+                            
+                        if hit_sl or hit_tp:
+                            print(f"🔄 {tf_name.upper()}: Trade Cerrado (SL: {hit_sl}, TP: {hit_tp}).")
+                            memoria[tf_name]["active_trade"] = None
+                            if hit_sl: 
+                                cd_time = df.index[-1] + timedelta(minutes=cfg["minutes"] * COOLDOWN_VELAS)
+                                memoria[tf_name]["cooldown_until"] = str(cd_time)
+                            guardar_memoria(memoria)
+                            break
+        else:
+            memoria[tf_name]["active_trade"] = None
+            guardar_memoria(memoria)
+
+    # ==========================================
+    # 🛑 2. VERIFICAR COOLDOWN
+    # ==========================================
+    if memoria[tf_name]["cooldown_until"] is not None:
+        cd_time = pd.to_datetime(memoria[tf_name]["cooldown_until"])
+        if df.index[-1] < cd_time:
+            print(f"   🛑 {tf_name.upper()}: En cooldown hasta {cd_time}.")
+            return 
+        else:
+            memoria[tf_name]["cooldown_until"] = None
+
+    # ==========================================
+    # 🎯 3. BUSCAR NUEVOS SETUPS
+    # ==========================================
+    if memoria[tf_name]["active_trade"] is not None:
+        return 
+
     df['ATR'] = ta.volatility.average_true_range(df['high'], df['low'], df['close'], window=33)
     
-    # HTF Dinámico
     htf_minutes = max(120, cfg["minutes"] * 4)
     htf_rule = f'{htf_minutes}min' if htf_minutes < 1440 else '1D'
     
@@ -106,8 +173,7 @@ def escanear_tf(cfg, memoria):
     last_pivot_high, last_pivot_low = np.nan, np.nan
     leg_high, leg_low = np.nan, np.nan
     
-    # Solo analizamos las últimas 10 velas para no saturar
-    for i in range(len(df) - 10, len(df)):
+    for i in range(len(df) - 3, len(df)):
         ph = highs[i-1] if (highs[i-1] > highs[i-2] and highs[i-1] > highs[i]) else np.nan
         pl = lows[i-1] if (lows[i-1] < lows[i-2] and lows[i-1] < lows[i]) else np.nan
         
@@ -140,74 +206,91 @@ def escanear_tf(cfg, memoria):
         htf_bias_bear = closes[i] < htf_emas[i] if not np.isnan(htf_emas[i]) else True
         in_session = (7 <= hours[i] <= 16) and (days[i] != 6)
         
-        if i >= len(df) - 3:
-            if disp_bull and htf_bias_bull and in_session:
-                ob_offset = 0; lowest_ob_low = 1e10
-                for k in range(1, OB_LOOKBACK + 1):
-                    if closes[i-k] <= opens[i-k] and lows[i-k] < lowest_ob_low:
-                        lowest_ob_low = lows[i-k]; ob_offset = k
-                if ob_offset > 0:
-                    ob_top = highs[i-ob_offset]; ob_bottom = lows[i-ob_offset]
-                    if np.isnan(equilibrium) or ob_top <= equilibrium:
-                        entry_p = ob_top if USE_RETRACEMENT else closes[i]
-                        sl_p = ob_bottom; risk_p = entry_p - sl_p
-                        if risk_p > 0:
-                            tp_p = entry_p + (risk_p * TARGET_RR)
-                            id_senal = str(df.index[i])
-                            if memoria[tf_name]["last_candle"] != id_senal and memoria[tf_name]["active_trade"] is None:
-                                memoria[tf_name]["last_candle"] = id_senal
-                                memoria[tf_name]["active_trade"] = {"dir": "LONG", "time": id_senal}
-                                guardar_memoria(memoria)
-                                lote = calcular_lotaje(entry_p, sl_p, BALANCE_CUENTA, RIESGO_POR_OPERACION)
-                                msg = (f"🚨 <b>¡NUEVA SEÑAL SMC ({tf_name.upper()})!</b> 🚨\n"
-                                       f"🟢 <b>Dirección:</b> COMPRA\n"
-                                       f"🎯 <b>Entrada:</b> {entry_p:.2f}\n"
-                                       f"🔴 <b>SL:</b> {sl_p:.2f}\n"
-                                       f"✅ <b>TP:</b> {tp_p:.2f}\n"
-                                       f"⚖️ <b>Lote:</b> {lote}")
-                                enviar_telegram(msg)
+        if disp_bull and htf_bias_bull and in_session:
+            ob_offset = 0; lowest_ob_low = 1e10
+            for k in range(1, OB_LOOKBACK + 1):
+                if closes[i-k] <= opens[i-k] and lows[i-k] < lowest_ob_low:
+                    lowest_ob_low = lows[i-k]; ob_offset = k
+            if ob_offset > 0:
+                ob_top = highs[i-ob_offset]; ob_bottom = lows[i-ob_offset]
+                if np.isnan(equilibrium) or ob_top <= equilibrium:
+                    entry_p = ob_top if USE_RETRACEMENT else closes[i]
+                    sl_p = ob_bottom; risk_p = entry_p - sl_p
+                    if risk_p > 0:
+                        tp_p = entry_p + (risk_p * TARGET_RR)
+                        status_init = "PENDING" if USE_RETRACEMENT else "TRIGGERED"
+                        
+                        memoria[tf_name]["active_trade"] = {
+                            "dir": "LONG", "entry": float(entry_p), "sl": float(sl_p), "tp": float(tp_p), 
+                            "time": str(df.index[i]), "status": status_init
+                        }
+                        guardar_memoria(memoria)
+                        
+                        lote = calcular_lotaje(entry_p, sl_p, BALANCE_CUENTA, RIESGO_POR_OPERACION)
+                        msg = (f"🚨 <b>¡NUEVA SEÑAL SMC ({tf_name.upper()})!</b> 🚨\n"
+                               f"🟢 <b>Dirección:</b> COMPRA\n"
+                               f"🎯 <b>Entrada:</b> {entry_p:.2f}\n"
+                               f"🔴 <b>SL:</b> {sl_p:.2f}\n"
+                               f"✅ <b>TP:</b> {tp_p:.2f}\n"
+                               f"⚖️ <b>Lote:</b> {lote}\n"
+                               f"<i>AlgoBot SMC (Elite)</i>")
+                        enviar_telegram(msg)
+                        return 
 
-            elif disp_bear and htf_bias_bear and in_session:
-                ob_offset_s = 0; highest_ob_high = -1e10
-                for k in range(1, OB_LOOKBACK + 1):
-                    if closes[i-k] >= opens[i-k] and highs[i-k] > highest_ob_high:
-                        highest_ob_high = highs[i-k]; ob_offset_s = k
-                if ob_offset_s > 0:
-                    ob_top_s = highs[i-ob_offset_s]; ob_bottom_s = lows[i-ob_offset_s]
-                    if np.isnan(equilibrium) or ob_bottom_s >= equilibrium:
-                        entry_ps = ob_bottom_s if USE_RETRACEMENT else closes[i]
-                        sl_ps = ob_top_s; risk_ps = sl_ps - entry_ps
-                        if risk_ps > 0:
-                            tp_ps = entry_ps - (risk_ps * TARGET_RR)
-                            id_senal = str(df.index[i])
-                            if memoria[tf_name]["last_candle"] != id_senal and memoria[tf_name]["active_trade"] is None:
-                                memoria[tf_name]["last_candle"] = id_senal
-                                memoria[tf_name]["active_trade"] = {"dir": "SHORT", "time": id_senal}
-                                guardar_memoria(memoria)
-                                lote = calcular_lotaje(entry_ps, sl_ps, BALANCE_CUENTA, RIESGO_POR_OPERACION)
-                                msg = (f"🚨 <b>¡NUEVA SEÑAL SMC ({tf_name.upper()})!</b> 🚨\n"
-                                       f"🔴 <b>Dirección:</b> VENTA\n"
-                                       f"🎯 <b>Entrada:</b> {entry_ps:.2f}\n"
-                                       f"🔴 <b>SL:</b> {sl_ps:.2f}\n"
-                                       f"✅ <b>TP:</b> {tp_ps:.2f}\n"
-                                       f"⚖️ <b>Lote:</b> {lote}")
-                                enviar_telegram(msg)
-
-    if memoria[tf_name]["active_trade"] is not None:
-        time_trade = pd.to_datetime(memoria[tf_name]["active_trade"]["time"])
-        # Liberamos la memoria después de 10 velas de la TF
-        if (df.index[-1] - time_trade).total_seconds() / 60 > (cfg["minutes"] * 10):
-            print(f"🧹 Liberando memoria en {tf_name.upper()}")
-            memoria[tf_name]["active_trade"] = None
-            guardar_memoria(memoria)
+        elif disp_bear and htf_bias_bear and in_session:
+            ob_offset_s = 0; highest_ob_high = -1e10
+            for k in range(1, OB_LOOKBACK + 1):
+                if closes[i-k] >= opens[i-k] and highs[i-k] > highest_ob_high:
+                    highest_ob_high = highs[i-k]; ob_offset_s = k
+            if ob_offset_s > 0:
+                ob_top_s = highs[i-ob_offset_s]; ob_bottom_s = lows[i-ob_offset_s]
+                if np.isnan(equilibrium) or ob_bottom_s >= equilibrium:
+                    entry_ps = ob_bottom_s if USE_RETRACEMENT else closes[i]
+                    sl_ps = ob_top_s; risk_ps = sl_ps - entry_ps
+                    if risk_ps > 0:
+                        tp_ps = entry_ps - (risk_ps * TARGET_RR)
+                        status_init_s = "PENDING" if USE_RETRACEMENT else "TRIGGERED"
+                        
+                        memoria[tf_name]["active_trade"] = {
+                            "dir": "SHORT", "entry": float(entry_ps), "sl": float(sl_ps), "tp": float(tp_ps), 
+                            "time": str(df.index[i]), "status": status_init_s
+                        }
+                        guardar_memoria(memoria)
+                        
+                        lote = calcular_lotaje(entry_ps, sl_ps, BALANCE_CUENTA, RIESGO_POR_OPERACION)
+                        msg = (f"🚨 <b>¡NUEVA SEÑAL SMC ({tf_name.upper()})!</b> 🚨\n"
+                               f"🔴 <b>Dirección:</b> VENTA\n"
+                               f"🎯 <b>Entrada:</b> {entry_ps:.2f}\n"
+                               f"🔴 <b>SL:</b> {sl_ps:.2f}\n"
+                               f"✅ <b>TP:</b> {tp_ps:.2f}\n"
+                               f"⚖️ <b>Lote:</b> {lote}\n"
+                               f"<i>AlgoBot SMC (Elite)</i>")
+                        enviar_telegram(msg)
+                        return
 
 def escanear_mercado():
     print(f"\n[{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC] Iniciando escaneo SMC Multi-TF...")
     memoria = cargar_memoria()
     
+    # ==========================================
+    # 🚀 SEÑAL DE CONEXIÓN INICIAL ÚNICA
+    # ==========================================
+    if not memoria.get("init_sent", False):
+        msg_init = "✅ <b>¡Bot SMC Conectado!</b> ✅\nEl motor multi-temporalidad ha arrancado y está escaneando el mercado. Te avisaré aquí mismo en cuanto detecte la primera señal."
+        if enviar_telegram(msg_init):
+            memoria["init_sent"] = True
+            guardar_memoria(memoria)
+            print("📡 Mensaje de conexión inicial enviado a Telegram.")
+
+    try:
+        tv = TvDatafeed()
+    except Exception as e:
+        print(f"❌ Error conectando a TvDatafeed: {e}")
+        return
+
     for cfg in CONFIG_TFS:
-        escanear_tf(cfg, memoria)
-        time.sleep(2) # Pausa para no saturar TradingView
+        escanear_tf(tv, cfg, memoria)
+        time.sleep(1)
 
 if __name__ == "__main__":
     escanear_mercado()
