@@ -1,0 +1,27 @@
+{
+    "init_sent": true,
+    "1m": {
+        "active_trade": null,
+        "cooldown_until": null
+    },
+    "5m": {
+        "active_trade": null,
+        "cooldown_until": null
+    },
+    "15m": {
+        "active_trade": null,
+        "cooldown_until": null
+    },
+    "30m": {
+        "active_trade": null,
+        "cooldown_until": null
+    },
+    "1h": {
+        "active_trade": null,
+        "cooldown_until": null
+    },
+    "4h": {
+        "active_trade": null,
+        "cooldown_until": null
+    }
+}
