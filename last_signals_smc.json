@@ -1,10 +1,7 @@
 {
     "1m": {
         "last_candle": "2026-11-10 16:56:00",
-        "active_trade": {
-            "dir": "LONG",
-            "time": "2026-11-10 16:56:00"
-        }
+        "active_trade": null
     },
     "5m": {
         "last_candle": "",
@@ -16,17 +13,11 @@
     },
     "30m": {
         "last_candle": "2026-11-10 11:00:00",
-        "active_trade": {
-            "dir": "SHORT",
-            "time": "2026-11-10 11:00:00"
-        }
+        "active_trade": null
     },
     "1h": {
         "last_candle": "2026-11-10 08:00:00",
-        "active_trade": {
-            "dir": "SHORT",
-            "time": "2026-11-10 08:00:00"
-        }
+        "active_trade": null
     },
     "4h": {
         "last_candle": "2026-11-10 09:00:00",
