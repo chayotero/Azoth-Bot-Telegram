@@ -13,7 +13,14 @@
         "cooldown_until": null
     },
     "30m": {
-        "active_trade": null,
+        "active_trade": {
+            "dir": "SHORT",
+            "entry": 4055.095,
+            "sl": 4061.78,
+            "tp": 4046.8724499999994,
+            "time": "2026-11-11 07:00:00",
+            "status": "PENDING"
+        },
         "cooldown_until": null
     },
     "1h": {
