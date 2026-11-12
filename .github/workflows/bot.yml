@@ -2,7 +2,7 @@ name: XAUUSD SMC Bot
 
 on:
   schedule:
-    # Ejecución cada 5 minutos (Ideal para capturar velas de 1m y 5m)
+    # Ejecución cada 5 minutos
     - cron: '*/5 * * * *'
   workflow_dispatch: 
 
