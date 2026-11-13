@@ -25,7 +25,14 @@
         "cooldown_until": null
     },
     "EURUSD_1h": {
-        "active_trade": null,
+        "active_trade": {
+            "dir": "SHORT",
+            "entry": 1.10558,
+            "sl": 1.10684,
+            "tp": 1.1040302,
+            "time": "2026-11-13 09:00:00",
+            "status": "PENDING"
+        },
         "cooldown_until": null
     },
     "GBPUSD_30m": {
@@ -64,14 +71,7 @@
         "cooldown_until": null
     },
     "USDCAD_1h": {
-        "active_trade": {
-            "dir": "LONG",
-            "entry": 1.42591,
-            "sl": 1.42493,
-            "tp": 1.4271154,
-            "time": "2026-11-13 04:00:00",
-            "status": "PENDING"
-        },
-        "cooldown_until": null
+        "active_trade": null,
+        "cooldown_until": "2026-11-13 23:00:00"
     }
 }
