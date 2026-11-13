@@ -1,0 +1,77 @@
+{
+    "init_sent": true,
+    "XAUUSD_5m": {
+        "active_trade": null,
+        "cooldown_until": null
+    },
+    "XAUUSD_15m": {
+        "active_trade": null,
+        "cooldown_until": null
+    },
+    "XAUUSD_30m": {
+        "active_trade": null,
+        "cooldown_until": null
+    },
+    "XAUUSD_1h": {
+        "active_trade": null,
+        "cooldown_until": null
+    },
+    "XAUUSD_4h": {
+        "active_trade": null,
+        "cooldown_until": null
+    },
+    "EURUSD_30m": {
+        "active_trade": null,
+        "cooldown_until": null
+    },
+    "EURUSD_1h": {
+        "active_trade": null,
+        "cooldown_until": null
+    },
+    "GBPUSD_30m": {
+        "active_trade": null,
+        "cooldown_until": null
+    },
+    "GBPUSD_1h": {
+        "active_trade": null,
+        "cooldown_until": null
+    },
+    "USDJPY_30m": {
+        "active_trade": {
+            "dir": "LONG",
+            "entry": 159.927,
+            "sl": 159.842,
+            "tp": 160.03154999999998,
+            "time": "2026-11-13 06:00:00",
+            "status": "PENDING"
+        },
+        "cooldown_until": null
+    },
+    "USDJPY_1h": {
+        "active_trade": null,
+        "cooldown_until": null
+    },
+    "AUDUSD_30m": {
+        "active_trade": null,
+        "cooldown_until": null
+    },
+    "AUDUSD_1h": {
+        "active_trade": null,
+        "cooldown_until": null
+    },
+    "USDCAD_30m": {
+        "active_trade": null,
+        "cooldown_until": null
+    },
+    "USDCAD_1h": {
+        "active_trade": {
+            "dir": "LONG",
+            "entry": 1.42591,
+            "sl": 1.42493,
+            "tp": 1.4271154,
+            "time": "2026-11-13 04:00:00",
+            "status": "PENDING"
+        },
+        "cooldown_until": null
+    }
+}
