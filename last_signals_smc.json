@@ -13,7 +13,14 @@
         "cooldown_until": null
     },
     "XAUUSD_1h": {
-        "active_trade": null,
+        "active_trade": {
+            "dir": "LONG",
+            "entry": 3879.62,
+            "sl": 3870.285,
+            "tp": 3891.10205,
+            "time": "2026-11-12 19:00:00",
+            "status": "PENDING"
+        },
         "cooldown_until": null
     },
     "XAUUSD_4h": {
@@ -41,7 +48,14 @@
         "cooldown_until": null
     },
     "AUDUSD_30m": {
-        "active_trade": null,
+        "active_trade": {
+            "dir": "LONG",
+            "entry": 0.68036,
+            "sl": 0.67974,
+            "tp": 0.6811225999999999,
+            "time": "2026-11-12 19:30:00",
+            "status": "PENDING"
+        },
         "cooldown_until": null
     },
     "AUDUSD_1h": {
