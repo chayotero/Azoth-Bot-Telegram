@@ -12,7 +12,7 @@ import ta
 warnings.filterwarnings('ignore')
 
 # ==========================================
-# ⚙️ CONFIGURACIÓN DEL BOT CAMPEÓN
+# ⚙️ CONFIGURACIÓN DEL BOT (LEE SECRETOS DE GITHUB)
 # ==========================================
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
@@ -49,12 +49,14 @@ TF_MAP = {
 
 ARCHIVO_MEMORIA = "last_signals_smc.json"
 
+# ==========================================
+# 🛠️ HELPERS
+# ==========================================
 def enviar_telegram(mensaje):
     if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID: return False
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {"chat_id": TELEGRAM_CHAT_ID, "text": mensaje, "parse_mode": "HTML"}
-    try:
-        return requests.post(url, json=payload, timeout=10).status_code == 200
+    try: return requests.post(url, json=payload, timeout=10).status_code == 200
     except: return False
 
 def calcular_lotaje(entry, sl, balance, riesgo, contract_size):
@@ -82,7 +84,7 @@ def guardar_memoria(memoria):
     with open(ARCHIVO_MEMORIA, 'w') as f: json.dump(memoria, f, indent=4)
 
 # ==========================================
-# 🏆 GESTIÓN DE TRADE ACTIVO (LÓGICA REALISTA)
+# 🏆 GESTIÓN DE TRADE ACTIVO
 # ==========================================
 def gestionar_trade_activo(df, key, memoria, tf_cfg, symbol, tf_name, contract_size):
     active = memoria[key]["active_trade"]
@@ -108,9 +110,7 @@ def gestionar_trade_activo(df, key, memoria, tf_cfg, symbol, tf_name, contract_s
 
     for j in range(len(v_highs)):
         if not triggered:
-            # Toca la entrada (sin restricciones mágicas)
-            hit_entry = (is_long and v_lows[j] <= active["entry"]) or \
-                        (not is_long and v_highs[j] >= active["entry"])
+            hit_entry = (is_long and v_lows[j] <= active["entry"]) or (not is_long and v_highs[j] >= active["entry"])
             
             if hit_entry:
                 triggered = True
@@ -118,7 +118,6 @@ def gestionar_trade_activo(df, key, memoria, tf_cfg, symbol, tf_name, contract_s
                 memoria[key]["active_trade"] = active
                 guardar_memoria(memoria)
                 
-                # 🚨 ALERTA TELEGRAM: El precio tocó el Order Block
                 lote = calcular_lotaje(active['entry'], active['sl'], BALANCE_CUENTA, RIESGO_POR_OPERACION, contract_size)
                 next_candle_time = (df.index[entry_idx] + timedelta(minutes=tf_cfg["minutes"])).strftime('%Y-%m-%d %H:%M')
                 
@@ -136,7 +135,6 @@ def gestionar_trade_activo(df, key, memoria, tf_cfg, symbol, tf_name, contract_s
                 enviar_telegram(msg)
                 print(f"   ✅ {key}: ¡Retroceso tocado! Alerta enviada.")
 
-            # Si el precio llega al TP sin tocar la entrada, cancelamos
             elif (is_long and v_highs[j] >= active["tp"]) or (not is_long and v_lows[j] <= active["tp"]):
                 memoria[key]["active_trade"] = None; guardar_memoria(memoria); return None
 
@@ -147,7 +145,6 @@ def gestionar_trade_activo(df, key, memoria, tf_cfg, symbol, tf_name, contract_s
             if hit_sl or hit_tp:
                 print(f"   🔄 {key}: Trade cerrado ({'TP' if hit_tp and not hit_sl else 'SL'}).")
                 memoria[key]["active_trade"] = None
-                # Si toca ambos, priorizamos el SL (Pérdida)
                 if hit_sl:
                     cd_time = df.index[-1] + timedelta(minutes=tf_cfg["minutes"] * COOLDOWN_VELAS)
                     memoria[key]["cooldown_until"] = str(cd_time)
@@ -161,8 +158,7 @@ def gestionar_trade_activo(df, key, memoria, tf_cfg, symbol, tf_name, contract_s
 def escanear_activo(tv, symbol, exchange, contract_size, tf_name, memoria):
     tf_cfg = TF_MAP[tf_name]
     key = f"{symbol}_{tf_name}"
-    try:
-        df = tv.get_hist(symbol=symbol, exchange=exchange, interval=tf_cfg["interval"], n_bars=500)
+    try: df = tv.get_hist(symbol=symbol, exchange=exchange, interval=tf_cfg["interval"], n_bars=500)
     except: return
 
     if df is None or len(df) < 200: return
@@ -225,8 +221,7 @@ def escanear_activo(tv, symbol, exchange, contract_size, tf_name, memoria):
         hb = closes[i] > htf_emas[i] if not np.isnan(htf_emas[i]) else True
         hs = closes[i] < htf_emas[i] if not np.isnan(htf_emas[i]) else True
         
-        # FILTRO DE SESIÓN LIBRE (24 HORAS)
-        ins = True
+        ins = True # 24 HORAS LIBRE
 
         if i < fire_threshold: continue
 
@@ -262,24 +257,32 @@ def escanear_activo(tv, symbol, exchange, contract_size, tf_name, memoria):
                         guardar_memoria(memoria)
                         return
 
+# ==========================================
+# 🚀 ESCANEO PRINCIPAL (SIN BUCLE INFINITO)
+# ==========================================
 def escanear_mercado():
     print(f"\n[{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC] Escaneo SMC CAMPEÓN (24h Libre)")
     memoria = cargar_memoria()
     
     if not memoria.get("init_sent", False):
-        msg_init = "✅ <b>¡Bot SMC CAMPEÓN Conectado!</b> ✅\nOperando 24h. Buscando Order Blocks."
+        msg_init = "✅ <b>¡Bot SMC CAMPEÓN Conectado (GitHub)!</b> ✅\nOperando 24h. Buscando Order Blocks."
         if enviar_telegram(msg_init):
             memoria["init_sent"] = True
             guardar_memoria(memoria)
+            print("📡 Mensaje de conexión enviado.")
 
     try: tv = TvDatafeed()
-    except: return
+    except Exception as e:
+        print(f"❌ Error TvDatafeed: {e}")
+        return
 
     for asset in ASSETS:
         for tf in asset["tfs"]:
-            try: escanear_activo(tv, asset["symbol"], asset["exchange"], asset["contract_size"], tf, memoria)
-            except Exception as e: pass
-            time.sleep(1)
+            try: 
+                escanear_activo(tv, asset["symbol"], asset["exchange"], asset["contract_size"], tf, memoria)
+            except Exception as e: 
+                pass
+            time.sleep(1) # Pausa entre activos
 
 if __name__ == "__main__":
     escanear_mercado()
