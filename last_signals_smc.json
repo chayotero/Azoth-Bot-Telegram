@@ -6,11 +6,11 @@
     },
     "XAUUSD_15m": {
         "active_trade": {
-            "dir": "SHORT",
-            "entry": 3865.685,
-            "sl": 3871.16,
-            "tp": 3858.95075,
-            "time": "2026-11-16 12:00:00",
+            "dir": "LONG",
+            "entry": 3854.16,
+            "sl": 3843.685,
+            "tp": 3867.04425,
+            "time": "2026-11-16 19:30:00",
             "status": "PENDING"
         },
         "cooldown_until": null
