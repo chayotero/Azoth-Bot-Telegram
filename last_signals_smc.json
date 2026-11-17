@@ -37,14 +37,7 @@
         "cooldown_until": null
     },
     "USDJPY_30m": {
-        "active_trade": {
-            "dir": "SHORT",
-            "entry": 159.181,
-            "sl": 159.367,
-            "tp": 158.95222000000004,
-            "time": "2026-11-17 03:00:00",
-            "status": "PENDING"
-        },
+        "active_trade": null,
         "cooldown_until": null
     },
     "USDJPY_1h": {
@@ -60,14 +53,7 @@
         "cooldown_until": null
     },
     "USDCAD_30m": {
-        "active_trade": {
-            "dir": "SHORT",
-            "entry": 1.43019,
-            "sl": 1.43108,
-            "tp": 1.4290953000000002,
-            "time": "2026-11-17 02:30:00",
-            "status": "PENDING"
-        },
+        "active_trade": null,
         "cooldown_until": null
     },
     "USDCAD_1h": {
