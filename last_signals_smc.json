@@ -25,36 +25,15 @@
         "cooldown_until": null
     },
     "EURUSD_1h": {
-        "active_trade": {
-            "dir": "SHORT",
-            "entry": 1.09852,
-            "sl": 1.0995,
-            "tp": 1.0973146,
-            "time": "2026-11-18 01:00:00",
-            "status": "PENDING"
-        },
+        "active_trade": null,
         "cooldown_until": null
     },
     "GBPUSD_30m": {
-        "active_trade": {
-            "dir": "SHORT",
-            "entry": 1.31932,
-            "sl": 1.31986,
-            "tp": 1.3186558000000002,
-            "time": "2026-11-18 01:30:00",
-            "status": "PENDING"
-        },
+        "active_trade": null,
         "cooldown_until": null
     },
     "GBPUSD_1h": {
-        "active_trade": {
-            "dir": "SHORT",
-            "entry": 1.3197,
-            "sl": 1.32073,
-            "tp": 1.3184331000000002,
-            "time": "2026-11-18 01:00:00",
-            "status": "PENDING"
-        },
+        "active_trade": null,
         "cooldown_until": null
     },
     "USDJPY_30m": {
@@ -66,11 +45,25 @@
         "cooldown_until": null
     },
     "AUDUSD_30m": {
-        "active_trade": null,
+        "active_trade": {
+            "dir": "SHORT",
+            "entry": 0.67288,
+            "sl": 0.67372,
+            "tp": 0.6718468000000001,
+            "time": "2026-11-18 10:30:00",
+            "status": "PENDING"
+        },
         "cooldown_until": null
     },
     "AUDUSD_1h": {
-        "active_trade": null,
+        "active_trade": {
+            "dir": "SHORT",
+            "entry": 0.67276,
+            "sl": 0.67372,
+            "tp": 0.6715792,
+            "time": "2026-11-18 09:00:00",
+            "status": "PENDING"
+        },
         "cooldown_until": null
     },
     "USDCAD_30m": {
@@ -78,7 +71,14 @@
         "cooldown_until": null
     },
     "USDCAD_1h": {
-        "active_trade": null,
+        "active_trade": {
+            "dir": "LONG",
+            "entry": 1.43113,
+            "sl": 1.43032,
+            "tp": 1.4321263,
+            "time": "2026-11-18 09:00:00",
+            "status": "PENDING"
+        },
         "cooldown_until": null
     }
 }
