@@ -5,33 +5,33 @@
         "cooldown_until": null
     },
     "XAUUSD_15m": {
-        "active_trade": {
-            "dir": "LONG",
-            "entry": 3523.505,
-            "sl": 3512.58,
-            "tp": 3536.94275,
-            "time": "2026-11-25 02:30:00",
-            "status": "PENDING"
-        },
+        "active_trade": null,
         "cooldown_until": null
     },
     "XAUUSD_30m": {
-        "active_trade": null,
+        "active_trade": {
+            "dir": "LONG",
+            "entry": 3473.19,
+            "sl": 3426.805,
+            "tp": 3530.24355,
+            "time": "2026-11-25 12:00:00",
+            "status": "PENDING"
+        },
         "cooldown_until": null
     },
     "XAUUSD_1h": {
-        "active_trade": null,
+        "active_trade": {
+            "dir": "LONG",
+            "entry": 3473.19,
+            "sl": 3426.805,
+            "tp": 3530.24355,
+            "time": "2026-11-25 12:00:00",
+            "status": "PENDING"
+        },
         "cooldown_until": null
     },
     "XAUUSD_4h": {
-        "active_trade": {
-            "dir": "SHORT",
-            "entry": 3619.765,
-            "sl": 3678.485,
-            "tp": 3547.5393999999997,
-            "time": "2026-11-24 16:00:00",
-            "status": "PENDING"
-        },
+        "active_trade": null,
         "cooldown_until": null
     },
     "EURUSD_30m": {
@@ -39,20 +39,34 @@
         "cooldown_until": null
     },
     "EURUSD_1h": {
-        "active_trade": null,
+        "active_trade": {
+            "dir": "LONG",
+            "entry": 1.09531,
+            "sl": 1.09337,
+            "tp": 1.0976962000000001,
+            "time": "2026-11-25 11:00:00",
+            "status": "PENDING"
+        },
         "cooldown_until": null
     },
     "GBPUSD_30m": {
-        "active_trade": null,
+        "active_trade": {
+            "dir": "LONG",
+            "entry": 1.30648,
+            "sl": 1.30461,
+            "tp": 1.3087801000000001,
+            "time": "2026-11-25 12:00:00",
+            "status": "PENDING"
+        },
         "cooldown_until": null
     },
     "GBPUSD_1h": {
         "active_trade": {
-            "dir": "SHORT",
-            "entry": 1.31071,
-            "sl": 1.31148,
-            "tp": 1.3097629000000002,
-            "time": "2026-11-25 01:00:00",
+            "dir": "LONG",
+            "entry": 1.3073,
+            "sl": 1.30461,
+            "tp": 1.3106086999999997,
+            "time": "2026-11-25 11:00:00",
             "status": "PENDING"
         },
         "cooldown_until": null
@@ -66,18 +80,18 @@
         "cooldown_until": null
     },
     "AUDUSD_30m": {
-        "active_trade": null,
+        "active_trade": {
+            "dir": "LONG",
+            "entry": 0.65884,
+            "sl": 0.65722,
+            "tp": 0.6608325999999999,
+            "time": "2026-11-25 12:00:00",
+            "status": "PENDING"
+        },
         "cooldown_until": null
     },
     "AUDUSD_1h": {
-        "active_trade": {
-            "dir": "SHORT",
-            "entry": 0.66298,
-            "sl": 0.66648,
-            "tp": 0.6586750000000001,
-            "time": "2026-11-25 01:00:00",
-            "status": "PENDING"
-        },
+        "active_trade": null,
         "cooldown_until": null
     },
     "USDCAD_30m": {
@@ -85,14 +99,7 @@
         "cooldown_until": null
     },
     "USDCAD_1h": {
-        "active_trade": {
-            "dir": "LONG",
-            "entry": 1.42704,
-            "sl": 1.426,
-            "tp": 1.4283192000000002,
-            "time": "2026-11-25 01:00:00",
-            "status": "PENDING"
-        },
+        "active_trade": null,
         "cooldown_until": null
     }
 }
