@@ -5,7 +5,14 @@
         "cooldown_until": null
     },
     "XAUUSD_15m": {
-        "active_trade": null,
+        "active_trade": {
+            "dir": "SHORT",
+            "entry": 3571.555,
+            "sl": 3577.155,
+            "tp": 3564.6669999999995,
+            "time": "2026-11-26 04:15:00",
+            "status": "PENDING"
+        },
         "cooldown_until": null
     },
     "XAUUSD_30m": {
@@ -38,50 +45,36 @@
     },
     "USDJPY_30m": {
         "active_trade": {
-            "dir": "SHORT",
-            "entry": 159.144,
-            "sl": 159.234,
-            "tp": 159.0333,
-            "time": "2026-11-25 19:00:00",
+            "dir": "LONG",
+            "entry": 159.162,
+            "sl": 159.09,
+            "tp": 159.25056,
+            "time": "2026-11-26 04:00:00",
             "status": "PENDING"
         },
         "cooldown_until": null
     },
     "USDJPY_1h": {
-        "active_trade": {
-            "dir": "SHORT",
-            "entry": 159.186,
-            "sl": 159.254,
-            "tp": 159.10236000000003,
-            "time": "2026-11-25 18:00:00",
-            "status": "PENDING"
-        },
+        "active_trade": null,
         "cooldown_until": null
     },
     "AUDUSD_30m": {
-        "active_trade": {
-            "dir": "LONG",
-            "entry": 0.66282,
-            "sl": 0.66243,
-            "tp": 0.6632996999999999,
-            "time": "2026-11-25 19:00:00",
-            "status": "PENDING"
-        },
+        "active_trade": null,
         "cooldown_until": null
     },
     "AUDUSD_1h": {
-        "active_trade": {
-            "dir": "LONG",
-            "entry": 0.66282,
-            "sl": 0.66243,
-            "tp": 0.6632996999999999,
-            "time": "2026-11-25 18:00:00",
-            "status": "PENDING"
-        },
+        "active_trade": null,
         "cooldown_until": null
     },
     "USDCAD_30m": {
-        "active_trade": null,
+        "active_trade": {
+            "dir": "LONG",
+            "entry": 1.42228,
+            "sl": 1.42196,
+            "tp": 1.4226736000000002,
+            "time": "2026-11-26 03:30:00",
+            "status": "PENDING"
+        },
         "cooldown_until": null
     },
     "USDCAD_1h": {
