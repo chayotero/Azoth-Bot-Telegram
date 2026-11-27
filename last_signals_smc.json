@@ -3,10 +3,10 @@
     "XAUUSD_5m": {
         "active_trade": {
             "dir": "LONG",
-            "entry": 3674.51,
-            "sl": 3671.08,
-            "tp": 3678.7289000000005,
-            "time": "2026-11-27 04:50:00",
+            "entry": 3641.675,
+            "sl": 3639.335,
+            "tp": 3644.5532000000003,
+            "time": "2026-11-27 13:35:00",
             "status": "PENDING"
         },
         "cooldown_until": null
@@ -29,15 +29,15 @@
     },
     "EURUSD_30m": {
         "active_trade": null,
-        "cooldown_until": "2026-11-27 11:00:00"
+        "cooldown_until": null
     },
     "EURUSD_1h": {
         "active_trade": {
             "dir": "SHORT",
-            "entry": 1.09714,
-            "sl": 1.09866,
-            "tp": 1.0952704,
-            "time": "2026-11-27 03:00:00",
+            "entry": 1.09595,
+            "sl": 1.09674,
+            "tp": 1.0949783,
+            "time": "2026-11-27 12:00:00",
             "status": "PENDING"
         },
         "cooldown_until": null
@@ -47,29 +47,22 @@
         "cooldown_until": null
     },
     "GBPUSD_1h": {
-        "active_trade": null,
+        "active_trade": {
+            "dir": "SHORT",
+            "entry": 1.31276,
+            "sl": 1.31349,
+            "tp": 1.3118620999999997,
+            "time": "2026-11-27 12:00:00",
+            "status": "PENDING"
+        },
         "cooldown_until": null
     },
     "USDJPY_30m": {
-        "active_trade": {
-            "dir": "LONG",
-            "entry": 159.36,
-            "sl": 159.286,
-            "tp": 159.45102000000003,
-            "time": "2026-11-27 04:00:00",
-            "status": "PENDING"
-        },
+        "active_trade": null,
         "cooldown_until": null
     },
     "USDJPY_1h": {
-        "active_trade": {
-            "dir": "LONG",
-            "entry": 159.248,
-            "sl": 159.142,
-            "tp": 159.37838,
-            "time": "2026-11-27 03:00:00",
-            "status": "PENDING"
-        },
+        "active_trade": null,
         "cooldown_until": null
     },
     "AUDUSD_30m": {
